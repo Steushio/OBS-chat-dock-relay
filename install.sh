@@ -64,6 +64,12 @@ fi
 cd "$INSTALL_DIR"
 
 # 3. Install packages
+# Always remove existing electron folder first to force npm to download/reinstall and run its postinstall scripts
+if [ -d "node_modules/electron" ]; then
+    echo -e "\033[0;33m[*] Cleaning up existing Electron installation to force reinstall...\033[0m"
+    rm -rf node_modules/electron
+fi
+
 echo -e "\033[0;36m[*] Installing dependencies...\033[0m"
 npm install --no-audit --no-fund --unsafe-perm=true
 
