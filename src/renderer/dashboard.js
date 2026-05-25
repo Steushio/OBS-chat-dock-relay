@@ -10,6 +10,7 @@ const btnLogout = document.getElementById('btn-logout');
 
 const toggleMonitor = document.getElementById('toggle-monitor');
 const streamStatus = document.getElementById('stream-status');
+const streamViewers = document.getElementById('stream-viewers');
 const streamVideoId = document.getElementById('stream-videoid');
 const streamTitle = document.getElementById('stream-title');
 
@@ -194,6 +195,7 @@ function setupIpcListeners() {
       streamStatus.style.color = stream.liveState === 'live' ? '#22c55e' : '#fb923c';
       streamVideoId.innerText = stream.videoId;
       streamTitle.innerText = stream.title;
+      streamViewers.innerText = stream.concurrentViewers !== undefined && stream.concurrentViewers !== null ? stream.concurrentViewers : '0';
       
       logActivity(`Stream detected: ${stream.title} [${stream.liveState}]`, 'system');
     } else {
@@ -201,6 +203,7 @@ function setupIpcListeners() {
       streamStatus.style.color = 'var(--text-muted)';
       streamVideoId.innerText = 'None';
       streamTitle.innerText = 'No stream active';
+      streamViewers.innerText = '0';
     }
   });
 

@@ -90,12 +90,21 @@ class StreamManager {
       else if (status === 'STATUS_UPCOMING' || status === 'UPCOMING' || status === 'LIFE_CYCLE_UPCOMING' || status === 'BROADCAST_STATUS_UPCOMING') liveState = 'upcoming';
       else if (status === 'STATUS_ARCHIVED' || status === 'STATUS_COMPLETE' || status === 'COMPLETED' || status === 'LIFE_CYCLE_COMPLETED') liveState = 'completed';
       
+      // Extract concurrent viewers
+      let concurrentViewers = null;
+      if (broadcast?.viewerStats?.concurrentViewersCount) {
+        concurrentViewers = parseInt(broadcast.viewerStats.concurrentViewersCount, 10);
+      } else if (broadcast?.viewerStats?.concurrentViewersTinyText?.simpleText) {
+        concurrentViewers = parseInt(broadcast.viewerStats.concurrentViewersTinyText.simpleText, 10);
+      }
+
       if (videoId) {
-        websocketServer.logSystem(`[Monitor] Intercepted broadcast status for Video ID: ${videoId} (State: ${liveState})`);
+        websocketServer.logSystem(`[Monitor] Intercepted broadcast status for Video ID: ${videoId} (State: ${liveState}, Viewers: ${concurrentViewers !== null ? concurrentViewers : 'N/A'})`);
         this.addOrUpdateStream({
           videoId,
           title: title || 'Studio Broadcast',
           liveState,
+          concurrentViewers,
           source: 'api_broadcast_status'
         });
       }
@@ -383,7 +392,8 @@ class StreamManager {
     if (
       !this.activeStream ||
       this.activeStream.videoId !== bestStream.videoId ||
-      this.activeStream.liveState !== bestStream.liveState
+      this.activeStream.liveState !== bestStream.liveState ||
+      this.activeStream.concurrentViewers !== bestStream.concurrentViewers
     ) {
       const oldId = this.activeStream ? this.activeStream.videoId : 'none';
       this.activeStream = bestStream;
