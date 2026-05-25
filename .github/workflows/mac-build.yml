@@ -35,6 +35,8 @@ jobs:
       # -------------------------------------------------
       - name: Build macOS binaries
         run: npm run build -- --mac   # uses electron-builder config in package.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # -------------------------------------------------
       # 5️⃣ Upload artifacts (the dmg & the unsigned zip)
