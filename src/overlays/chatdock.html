@@ -153,6 +153,10 @@
       background-color: rgba(234, 179, 8, 0.1);
       border-left-color: var(--color-member);
     }
+    .alert-card.subscription {
+      background-color: rgba(34, 197, 94, 0.08);
+      border-left-color: #22c55e;
+    }
     .alert-header {
       font-weight: bold;
       display: flex;
@@ -375,13 +379,12 @@
         `;
         container.appendChild(row);
       } else {
-        // Render Embedded Alert Cards (Super Chats, Memberships)
-        const isSuperChat = item.type === 'superchat' || item.type === 'sticker';
+        // Render Embedded Alert Cards (Super Chats, Memberships, Subscriptions)
         const card = document.createElement('div');
-        card.className = `alert-card ${isSuperChat ? 'superchat' : 'membership'}`;
         card.id = item.id;
 
-        if (isSuperChat) {
+        if (item.type === 'superchat' || item.type === 'sticker') {
+          card.className = 'alert-card superchat';
           card.style.borderLeftColor = item.color || 'var(--color-owner)';
           card.innerHTML = `
             <div class="alert-header">
@@ -390,11 +393,22 @@
             </div>
             <div>${item.message}</div>
           `;
-        } else {
+        } else if (item.type === 'subscription') {
+          card.className = 'alert-card subscription';
           card.innerHTML = `
             <div class="alert-header">
               <span>⭐ ${item.username}</span>
-              <span class="alert-amount">New Member</span>
+              <span class="alert-amount" style="background:rgba(34,197,94,0.2);color:#bbf7d0;">SUB</span>
+            </div>
+            <div>${item.message}</div>
+          `;
+        } else {
+          // membership, membership_gift, membership_redeemed
+          card.className = 'alert-card membership';
+          card.innerHTML = `
+            <div class="alert-header">
+              <span>👑 ${item.username}</span>
+              <span class="alert-amount">Member</span>
             </div>
             <div>${item.message}</div>
           `;
@@ -402,6 +416,7 @@
 
         container.appendChild(card);
       }
+
 
       if (wasAtBottom) {
         scrollToBottom();

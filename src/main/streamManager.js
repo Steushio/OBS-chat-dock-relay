@@ -11,6 +11,8 @@ class StreamManager {
     this.activeStream = null;   // Currently selected stream info
     this.onStreamChangeCallback = null;
     this.isMonitoring = false;
+    this.knownSubscribers = new Set(); // Track seen subscriber names to detect new ones
+    this.subscriberBaselineReady = false; // First poll builds baseline silently
 
     this.setupIpc();
   }
@@ -41,6 +43,22 @@ class StreamManager {
           source: 'dom_scraped'
         });
       }
+    });
+
+    // Listen to new subscriber events polled from the Studio session
+    ipcMain.on('studio-new-subscriber', (event, { username, avatar }) => {
+      const id = `sub_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+      const alertData = {
+        type: 'subscription',
+        id,
+        username,
+        avatar: avatar || '',
+        message: 'Just subscribed!',
+        timestamp: Date.now()
+      };
+      websocketServer.broadcast('alert', alertData);
+      websocketServer.broadcast('chat', alertData);
+      websocketServer.logSystem(`[Subscribers] New subscriber detected: ${username}`);
     });
   }
 
@@ -269,6 +287,66 @@ class StreamManager {
             }
           }
         }, 5000);
+
+        // 4. Subscriber poller — polls FEchannel_subscribers every 30s using the
+        //    page's own authenticated ytcfg context (no extra login required).
+        //    First run silently builds a baseline; subsequent runs fire events for new names.
+        (function startSubscriberPoller() {
+          let baselineReady = false;
+          let knownSubs = new Set();
+
+          async function pollSubscribers() {
+            try {
+              const apiKey = (window.ytcfg && window.ytcfg.get) ? window.ytcfg.get('INNERTUBE_API_KEY', '') : '';
+              const context = (window.ytcfg && window.ytcfg.get) ? window.ytcfg.get('INNERTUBE_CONTEXT', null) : null;
+              if (!apiKey || !context) return;
+
+              const res = await window.__origFetch(`/youtubei/v1/browse?key=${apiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ context, browseId: 'FEchannel_subscribers' })
+              });
+              const json = await res.json();
+
+              // Extract subscriber names from the renderer tree
+              const newSubs = [];
+              function findSubs(obj) {
+                if (!obj || typeof obj !== 'object') return;
+                // channelRenderer contains subscriber names
+                if (obj.channelRenderer) {
+                  const cr = obj.channelRenderer;
+                  const name = cr.title && cr.title.simpleText ? cr.title.simpleText : null;
+                  const avatar = (cr.thumbnail && cr.thumbnail.thumbnails && cr.thumbnail.thumbnails.length)
+                    ? cr.thumbnail.thumbnails[cr.thumbnail.thumbnails.length - 1].url : '';
+                  if (name) newSubs.push({ username: name, avatar });
+                }
+                for (const k in obj) findSubs(obj[k]);
+              }
+              findSubs(json);
+
+              if (!baselineReady) {
+                // First poll: populate known set silently
+                newSubs.forEach(s => knownSubs.add(s.username));
+                baselineReady = true;
+              } else {
+                // Subsequent polls: fire events for any new names
+                newSubs.forEach(s => {
+                  if (!knownSubs.has(s.username)) {
+                    knownSubs.add(s.username);
+                    window.dispatchEvent(new CustomEvent('obs-new-subscriber', {
+                      detail: { username: s.username, avatar: s.avatar }
+                    }));
+                  }
+                });
+              }
+            } catch(e) {}
+          }
+
+          // Preserve the unpatched fetch for the subscriber poller so we don't intercept ourselves
+          window.__origFetch = window.__origFetch || origFetch;
+          setInterval(pollSubscribers, 30000);
+          pollSubscribers(); // Run immediately for baseline
+        })();
       })();
     `;
 

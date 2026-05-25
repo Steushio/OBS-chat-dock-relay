@@ -14,3 +14,8 @@ window.addEventListener('youtubei-api-data', (event) => {
 window.addEventListener('youtubei-dom-scraped', (event) => {
   ipcRenderer.send('studio-dom-data', event.detail);
 });
+
+// Forward new subscriber events detected by the subscriber poller
+window.addEventListener('obs-new-subscriber', (event) => {
+  ipcRenderer.send('studio-new-subscriber', event.detail);
+});
