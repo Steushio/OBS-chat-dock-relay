@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OBS Event Dock</title>
+  <style>
+    :root {
+      --bg-dark: #18181b;
+      --bg-log: #0f0f11;
+      --border: #2e2e33;
+      --text-main: #d4d4d8;
+      --text-muted: #71717a;
+      --color-info: #38bdf8;
+      --color-warning: #fb923c;
+      --color-error: #f87171;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 11px;
+      line-height: 1.5;
+      overflow: hidden;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Header */
+    #header {
+      background-color: #1e1e1e;
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: var(--text-muted);
+      font-weight: bold;
+      flex-shrink: 0;
+    }
+
+    .badge-indicator {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 4px;
+    }
+    .badge-indicator.connected { background-color: #22c55e; }
+    .badge-indicator.disconnected { background-color: #ef4444; }
+
+    /* Console logs view */
+    #log-container {
+      flex: 1;
+      background-color: var(--bg-log);
+      padding: 8px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .log-line {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+      padding-bottom: 2px;
+    }
+
+    .log-time {
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    .log-content {
+      word-break: break-all;
+    }
+
+    /* Level colors */
+    .log-line.info .log-content { color: var(--text-main); }
+    .log-line.info .log-time { color: var(--color-info); }
+    .log-line.warning .log-content { color: var(--color-warning); }
+    .log-line.error .log-content { color: var(--color-error); }
+
+    /* Custom scrollbar */
+    #log-container::-webkit-scrollbar {
+      width: 6px;
+    }
+    #log-container::-webkit-scrollbar-track {
+      background: var(--bg-log);
+    }
+    #log-container::-webkit-scrollbar-thumb {
+      background: #27272a;
+      border-radius: 3px;
+    }
+    #log-container::-webkit-scrollbar-thumb:hover {
+      background: #3f3f46;
+    }
+  </style>
+</head>
+<body>
+  <div id="header">
+    <div>
+      <span id="status-dot" class="badge-indicator disconnected"></span>
+      <span id="status-text" style="color: var(--text-main)">Disconnected</span>
+    </div>
+    <div>System Log</div>
+  </div>
+
+  <div id="log-container">
+    <!-- Log statements appended here -->
+  </div>
+
+  <script>
+    const container = document.getElementById('log-container');
+    const statusDot = document.getElementById('status-dot');
+    const statusText = document.getElementById('status-text');
+
+    let ws = null;
+    let maxLogs = 100;
+
+    async function connect() {
+      try {
+        statusText.innerText = 'Connecting...';
+        const response = await fetch('/status');
+        const config = await response.json();
+        
+        ws = new WebSocket(`ws://127.0.0.1:${config.wsPort || 3001}`);
+
+        ws.onopen = () => {
+          statusDot.className = 'badge-indicator connected';
+          statusText.innerText = 'System Live';
+          logLocal('Event dock successfully connected to relay websocket');
+        };
+
+        ws.onmessage = (event) => {
+          const payload = JSON.parse(event.data);
+          
+          if (payload.event === 'handshake') {
+            if (payload.data.recentLogs) {
+              container.innerHTML = ''; // Clear and load history
+              payload.data.recentLogs.forEach(appendLog);
+            }
+          } 
+          else if (payload.event === 'log') {
+            appendLog(payload.data);
+          }
+        };
+
+        ws.onclose = () => {
+          statusDot.className = 'badge-indicator disconnected';
+          statusText.innerText = 'Offline';
+          logLocal('Connection to relay websocket lost. Retrying...', 'warning');
+          setTimeout(connect, 3000);
+        };
+
+        ws.onerror = (err) => {
+          console.error(err);
+          ws.close();
+        };
+
+      } catch (err) {
+        setTimeout(connect, 3000);
+      }
+    }
+
+    function appendLog(log) {
+      while (container.children.length >= maxLogs) {
+        container.removeChild(container.firstChild);
+      }
+
+      const row = document.createElement('div');
+      row.className = `log-line ${log.level || 'info'}`;
+
+      row.innerHTML = `
+        <span class="log-time">[${log.timestamp || new Date().toLocaleTimeString()}]</span>
+        <span class="log-content">${escapeHtml(log.message)}</span>
+      `;
+
+      container.appendChild(row);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function logLocal(msg, level = 'info') {
+      appendLog({
+        timestamp: new Date().toLocaleTimeString(),
+        level: level,
+        message: `[EventDock] ${msg}`
+      });
+    }
+
+    function escapeHtml(str) {
+      return str
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    // Init
+    connect();
+  </script>
+</body>
+</html>

@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OBS Chat Relay Dashboard</title>
+  <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+  
+  <!-- Sleek Glowing Header -->
+  <header>
+    <div class="logo-section">
+      <div class="logo-icon">💬</div>
+      <div class="logo-text">
+        <h1 class="title-font">OBS Chat Relay</h1>
+        <p>STANDALONE LOCAL YOUTUBE CAPTURE ENGINE</p>
+      </div>
+    </div>
+    <div class="status-indicator">
+      <span id="global-status-dot" class="dot inactive"></span>
+      <span id="global-status-text">Relay Offline</span>
+    </div>
+  </header>
+
+  <!-- Two-Column Grid Setup -->
+  <div class="grid-container">
+    
+    <!-- Left Column: Sessions, Scanning, and Live Stream details -->
+    <div style="display: flex; flex-direction: column; gap: 20px;">
+      
+      <!-- YouTube Login Session Card -->
+      <div class="card">
+        <div class="card-title">
+          <span style="font-size: 20px;">🔑</span>
+          <h2 class="title-font">YouTube Authentication</h2>
+        </div>
+        <p style="font-size: 13px; color: var(--text-muted); margin-top: -6px;">
+          Persistently authenticate with Google/YouTube. No API quotas or keys needed.
+        </p>
+
+        <div class="session-status">
+          <div class="session-info">
+            <span class="session-label">Session Status</span>
+            <span id="session-status-text" class="session-value" style="color: #ef4444;">Not Authenticated</span>
+          </div>
+          <div>
+            <button id="btn-login" class="btn-primary">Connect Account</button>
+            <button id="btn-logout" class="btn-secondary" style="display: none;">Disconnect</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- YouTube Studio Detection Card -->
+      <div class="card">
+        <div class="card-title">
+          <span style="font-size: 20px;">🛰️</span>
+          <h2 class="title-font">YouTube Studio Scanner</h2>
+        </div>
+
+        <div class="switch-wrapper">
+          <div class="switch-label">
+            <span>Background Studio Monitoring</span>
+            <small>Silently monitor Studio to auto-detect livestreams</small>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-monitor">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="metadata-grid">
+          <div class="meta-item">
+            <span class="meta-title">Stream Status</span>
+            <span id="stream-status" class="meta-value" style="color: var(--text-muted);">Idle</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-title">Video ID</span>
+            <span id="stream-videoid" class="meta-value" style="color: var(--accent-cyan); font-family: monospace;">None</span>
+          </div>
+          <div class="meta-item" style="grid-column: span 2;">
+            <span class="meta-title">Stream Title</span>
+            <span id="stream-title" class="meta-value" style="font-weight: bold;">No stream active</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Real-Time Activity Monitor Card -->
+      <div class="card">
+        <div class="card-title">
+          <span style="font-size: 20px;">⚡</span>
+          <h2 class="title-font">Live Activity Monitor</h2>
+        </div>
+        <div id="activity-preview" class="preview-container">
+          <div class="preview-row" style="color: var(--text-muted)">
+            <span>Waiting for stream connection... Logs and chats will preview here.</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right Column: OBS Dock Integration and Settings -->
+    <div style="display: flex; flex-direction: column; gap: 20px;">
+      
+      <!-- OBS Custom Browser Docks Card -->
+      <div class="card">
+        <div class="card-title">
+          <span style="font-size: 20px;">📺</span>
+          <h2 class="title-font">OBS Custom Docks Integration</h2>
+        </div>
+        <p style="font-size: 13px; color: var(--text-muted); margin-top: -6px;">
+          Add these dynamic local URLs once as Custom Browser Docks inside OBS.
+        </p>
+
+        <div class="url-list">
+          <!-- Chat Dock URL -->
+          <div class="url-item">
+            <div class="url-details">
+              <span class="url-name">1. Custom Chat Dock</span>
+              <span id="url-chat" class="url-path">http://127.0.0.1:3000/chatdock</span>
+            </div>
+            <button class="btn-secondary btn-copy" data-target="url-chat">📋 Copy</button>
+          </div>
+
+          <!-- Alert Dock URL -->
+          <div class="url-item">
+            <div class="url-details">
+              <span class="url-name">2. Custom Alert Dock</span>
+              <span id="url-alert" class="url-path">http://127.0.0.1:3000/alertdock</span>
+            </div>
+            <button class="btn-secondary btn-copy" data-target="url-alert">📋 Copy</button>
+          </div>
+
+          <!-- Event Log Dock URL -->
+          <div class="url-item">
+            <div class="url-details">
+              <span class="url-name">3. Custom System Log Dock</span>
+              <span id="url-event" class="url-path">http://127.0.0.1:3000/eventdock</span>
+            </div>
+            <button class="btn-secondary btn-copy" data-target="url-event">📋 Copy</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Settings Card -->
+      <div class="card">
+        <div class="card-title">
+          <span style="font-size: 20px;">⚙️</span>
+          <h2 class="title-font">Preferences & Configuration</h2>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+          <div class="form-group">
+            <label for="input-http-port">Express Server Port</label>
+            <input type="number" id="input-http-port" value="3000" min="1024" max="65535">
+          </div>
+          <div class="form-group">
+            <label for="input-ws-port">WebSocket Port</label>
+            <input type="number" id="input-ws-port" value="3001" min="1024" max="65535">
+          </div>
+        </div>
+
+        <div class="switch-wrapper" style="margin-top: 6px;">
+          <div class="switch-label">
+            <span>Low Resource Mode</span>
+            <small>Deactivates avatar photos in docks for 0% CPU footprint</small>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-low-resource">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="switch-wrapper">
+          <div class="switch-label">
+            <span>Run on Startup</span>
+            <small>Auto start minimized when logging in to Linux</small>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-autostart">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="switch-wrapper">
+          <div class="switch-label">
+            <span>Auto Start Monitoring</span>
+            <small>Auto start background monitor when app opens</small>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-auto-start-monitoring">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="switch-wrapper">
+          <div class="switch-label">
+            <span>Start Minimized to Tray</span>
+            <small>Hide dashboard window and start in tray on launch</small>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-start-minimized">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; margin-top: 10px; gap: 10px;">
+          <button id="btn-save-settings" class="btn-primary" style="width: 100%;">Save & Apply Settings</button>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- Dynamic Feedback Toast -->
+  <div id="toast-message" class="toast">Settings successfully applied!</div>
+
+  <script src="dashboard.js"></script>
+</body>
+</html>

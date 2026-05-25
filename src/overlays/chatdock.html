@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OBS Chat Dock</title>
+  <style>
+    :root {
+      --bg-dark: #18181b;
+      --bg-card: #1e1e1e;
+      --bg-hover: #27272a;
+      --border: #2e2e33;
+      --text-main: #e4e4e7;
+      --text-muted: #a1a1aa;
+      --color-owner: #ef4444;
+      --color-mod: #22c55e;
+      --color-member: #eab308;
+      --color-regular: #38bdf8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-size: 13px;
+      line-height: 1.4;
+      overflow: hidden;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Connection status bar */
+    #status-bar {
+      background-color: #0f0f11;
+      padding: 4px 8px;
+      font-size: 11px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: var(--text-muted);
+    }
+
+    .badge-indicator {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 4px;
+    }
+    .badge-indicator.connected { background-color: var(--color-mod); }
+    .badge-indicator.disconnected { background-color: var(--color-owner); }
+
+    /* Stream Info Header */
+    #stream-header {
+      background-color: var(--bg-card);
+      padding: 6px 10px;
+      font-size: 12px;
+      border-bottom: 1px solid var(--border);
+      font-weight: 500;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
+    }
+
+    /* Messages container */
+    #messages-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      scroll-behavior: auto;
+    }
+
+    /* Message Item */
+    .message-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+      padding: 4px 6px;
+      border-radius: 4px;
+      background-color: transparent;
+    }
+    .message-row:hover {
+      background-color: var(--bg-hover);
+    }
+
+    /* Avatar spacing */
+    .avatar {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background-color: #333;
+    }
+
+    /* Author info & Badges */
+    .author-wrapper {
+      display: inline-flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 3px;
+      font-weight: 600;
+      margin-right: 4px;
+    }
+
+    .author-name {
+      color: var(--text-main);
+    }
+    .author-name.owner { color: var(--color-owner); }
+    .author-name.moderator { color: var(--color-mod); }
+    .author-name.member { color: var(--color-member); }
+    .author-name.regular { color: var(--color-regular); }
+
+    .badge-icon {
+      font-size: 10px;
+      padding: 1px 3px;
+      border-radius: 3px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .badge-icon.owner { background-color: rgba(239, 68, 68, 0.2); color: var(--color-owner); }
+    .badge-icon.moderator { background-color: rgba(34, 197, 94, 0.2); color: var(--color-mod); }
+    .badge-icon.member { background-color: rgba(234, 179, 8, 0.2); color: var(--color-member); }
+
+    .message-text {
+      word-break: break-word;
+      color: var(--text-main);
+    }
+
+    /* Alerts in Chat List */
+    .alert-card {
+      padding: 6px 10px;
+      border-radius: 6px;
+      margin: 2px 0;
+      border-left: 4px solid var(--color-member);
+      font-size: 12px;
+    }
+    .alert-card.superchat {
+      background-color: rgba(239, 68, 68, 0.1);
+      border-left-color: var(--color-owner);
+    }
+    .alert-card.membership {
+      background-color: rgba(234, 179, 8, 0.1);
+      border-left-color: var(--color-member);
+    }
+    .alert-header {
+      font-weight: bold;
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 2px;
+    }
+    .alert-amount {
+      color: #fff;
+      background-color: rgba(255, 255, 255, 0.15);
+      padding: 1px 4px;
+      border-radius: 3px;
+      font-size: 11px;
+    }
+
+    /* Scroll lock overlay alert */
+    #scroll-notice {
+      position: absolute;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: var(--color-regular);
+      color: #0f0f11;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: bold;
+      cursor: pointer;
+      display: none;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+      z-index: 10;
+    }
+
+    /* Low resource overrides */
+    .low-res .avatar {
+      display: none !important;
+    }
+    .low-res .message-row {
+      padding: 2px 4px;
+    }
+  </style>
+</head>
+<body>
+  <div id="status-bar">
+    <div>
+      <span id="status-dot" class="badge-indicator disconnected"></span>
+      <span id="status-text">Disconnected</span>
+    </div>
+    <div id="connection-info">Local WS</div>
+  </div>
+
+  <div id="stream-header">No Active Stream Detected</div>
+
+  <div id="messages-container">
+    <!-- Messages appended dynamically -->
+  </div>
+
+  <div id="scroll-notice" onclick="scrollToBottom(true)">↓ New messages below</div>
+
+  <script>
+    const container = document.getElementById('messages-container');
+    const statusDot = document.getElementById('status-dot');
+    const statusText = document.getElementById('status-text');
+    const streamHeader = document.getElementById('stream-header');
+    const scrollNotice = document.getElementById('scroll-notice');
+    
+    let isAutoScrollLocked = true;
+    let ws = null;
+    let maxMessages = 150;
+    let lowResourceMode = false;
+
+    // Detect scrolling to toggle auto-scroll lock
+    container.addEventListener('scroll', () => {
+      const threshold = 40; // px
+      const isAtBottom = container.scrollHeight - container.clientHeight - container.scrollTop < threshold;
+      isAutoScrollLocked = isAtBottom;
+      
+      if (isAutoScrollLocked) {
+        scrollNotice.style.display = 'none';
+      }
+    });
+
+    function scrollToBottom(force = false) {
+      if (isAutoScrollLocked || force) {
+        container.scrollTop = container.scrollHeight;
+        scrollNotice.style.display = 'none';
+      }
+    }
+
+    // Connect to WebSocket using dynmically fetched configuration
+    async function connect() {
+      try {
+        statusText.innerText = 'Connecting...';
+        // Get dynamic port from current origin Express status
+        const response = await fetch('/status');
+        const config = await response.json();
+        
+        const wsPort = config.wsPort || 3001;
+        lowResourceMode = config.lowResourceMode || false;
+        
+        if (lowResourceMode) {
+          document.body.classList.add('low-res');
+        }
+
+        ws = new WebSocket(`ws://127.0.0.1:${wsPort}`);
+
+        ws.onopen = () => {
+          statusDot.className = 'badge-indicator connected';
+          statusText.innerText = 'Connected';
+        };
+
+        ws.onmessage = (event) => {
+          const payload = JSON.parse(event.data);
+          handleWebSocketMessage(payload);
+        };
+
+        ws.onclose = () => {
+          statusDot.className = 'badge-indicator disconnected';
+          statusText.innerText = 'Disconnected';
+          setTimeout(connect, 3000); // Retry reconnect in 3s
+        };
+
+        ws.onerror = (err) => {
+          console.error('WS Error:', err);
+          ws.close();
+        };
+
+      } catch (err) {
+        console.error('Failed fetching dynamic port status, retrying in 3s...', err);
+        statusText.innerText = 'Retry config...';
+        setTimeout(connect, 3000);
+      }
+    }
+
+    function handleWebSocketMessage(payload) {
+      const { event, data } = payload;
+
+      if (event === 'handshake') {
+        if (data.stream) {
+          streamHeader.innerText = `Stream: ${data.stream.title} (${data.stream.liveState})`;
+        }
+      }
+
+      if (event === 'stream_update') {
+        if (data) {
+          streamHeader.innerText = `Stream: ${data.title} (${data.liveState})`;
+        } else {
+          streamHeader.innerText = 'No Active Stream';
+        }
+      }
+
+      if (event === 'chat') {
+        appendMessage(data);
+      }
+    }
+
+    function appendMessage(item) {
+      // Manage DOM size
+      while (container.children.length >= maxMessages) {
+        container.removeChild(container.firstChild);
+      }
+
+      // Check scroll lock
+      const wasAtBottom = isAutoScrollLocked;
+
+      if (item.type === 'chat') {
+        const row = document.createElement('div');
+        row.className = 'message-row';
+        row.id = item.id;
+
+        // Avatar
+        let avatarHtml = '';
+        if (!lowResourceMode && item.avatar) {
+          avatarHtml = `<img class="avatar" src="${item.avatar}" onerror="this.style.display='none'">`;
+        }
+
+        // Badges
+        let badgeHtml = '';
+        let roleClass = 'regular';
+        
+        if (item.badges.includes('owner')) {
+          badgeHtml = `<span class="badge-icon owner">Broadcaster</span>`;
+          roleClass = 'owner';
+        } else if (item.badges.includes('moderator')) {
+          badgeHtml = `<span class="badge-icon moderator">Mod</span>`;
+          roleClass = 'moderator';
+        } else if (item.badges.includes('member')) {
+          badgeHtml = `<span class="badge-icon member">Member</span>`;
+          roleClass = 'member';
+        }
+
+        row.innerHTML = `
+          ${avatarHtml}
+          <div>
+            <span class="author-wrapper">
+              <span class="author-name ${roleClass}">${item.username}</span>
+              ${badgeHtml}
+            </span>
+            <span class="message-text">${item.message}</span>
+          </div>
+        `;
+        container.appendChild(row);
+      } else {
+        // Render Embedded Alert Cards (Super Chats, Memberships)
+        const isSuperChat = item.type === 'superchat' || item.type === 'sticker';
+        const card = document.createElement('div');
+        card.className = `alert-card ${isSuperChat ? 'superchat' : 'membership'}`;
+        card.id = item.id;
+
+        if (isSuperChat) {
+          card.style.borderLeftColor = item.color || 'var(--color-owner)';
+          card.innerHTML = `
+            <div class="alert-header">
+              <span>⚡ ${item.username}</span>
+              <span class="alert-amount">${item.amount}</span>
+            </div>
+            <div>${item.message}</div>
+          `;
+        } else {
+          card.innerHTML = `
+            <div class="alert-header">
+              <span>⭐ ${item.username}</span>
+              <span class="alert-amount">New Member</span>
+            </div>
+            <div>${item.message}</div>
+          `;
+        }
+
+        container.appendChild(card);
+      }
+
+      if (wasAtBottom) {
+        scrollToBottom();
+      } else {
+        scrollNotice.style.display = 'block';
+      }
+    }
+
+    // Initialize
+    connect();
+  </script>
+</body>
+</html>
