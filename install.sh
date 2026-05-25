@@ -65,7 +65,14 @@ cd "$INSTALL_DIR"
 
 # 3. Install packages
 echo -e "\033[0;36m[*] Installing dependencies...\033[0m"
-npm install --no-audit --no-fund
+npm install --no-audit --no-fund --unsafe-perm=true
+
+# Force Electron to install its binary in case postinstall skipped
+if [ -f "node_modules/electron/install.js" ]; then
+    echo -e "\033[0;36m[*] Verifying and installing Electron binary...\033[0m"
+    node node_modules/electron/install.js
+fi
+
 
 # 4. Create App Menu Entry
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
