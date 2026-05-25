@@ -301,7 +301,7 @@ class StreamManager {
               const context = (window.ytcfg && window.ytcfg.get) ? window.ytcfg.get('INNERTUBE_CONTEXT', null) : null;
               if (!apiKey || !context) return;
 
-              const res = await window.__origFetch(`/youtubei/v1/browse?key=${apiKey}`, {
+              const res = await window.__origFetch('/youtubei/v1/browse?key=' + apiKey, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ context, browseId: 'FEchannel_subscribers' })

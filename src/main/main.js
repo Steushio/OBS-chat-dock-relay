@@ -1,8 +1,7 @@
 const { app, BrowserWindow, ipcMain, Tray, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { exec } = require('child_process');
-const os = require('os');
+
 
 const configStore = require('./configStore');
 const overlayServer = require('./overlayServer');
@@ -21,14 +20,6 @@ async function startApp() {
   const httpPort = configStore.get('httpPort');
   const wsPort = configStore.get('wsPort');
 
-  // Automatically register docks inside OBS Studio configuration if it is not currently running
-  isObsRunning().then((running) => {
-    if (!running) {
-      registerObsDocks(httpPort);
-    } else {
-      websocketServer.logSystem('[OBS Integration] OBS Studio is running. Skipping automatic dock registration to prevent file lock conflict.', 'warning');
-    }
-  });
 
   // Start Express Overlay server
   try {
@@ -378,124 +369,5 @@ app.on('window-all-closed', () => {
   }
 });
 
-// ── OBS Studio Custom Docks Auto-Registration Utilities ───────────────────
-function isObsRunning() {
-  return new Promise((resolve) => {
-    const cmd = process.platform === 'win32'
-      ? 'tasklist /FI "IMAGENAME eq obs64.exe" /FI "IMAGENAME eq obs.exe"'
-      : 'pgrep -x obs || pgrep -x obs64 || pgrep -f obs-studio';
-    exec(cmd, (err, stdout) => {
-      if (err) {
-        resolve(false);
-        return;
-      }
-      resolve(stdout.toLowerCase().includes('obs'));
-    });
-  });
-}
 
-function registerObsDocks(httpPort) {
-  try {
-    let obsConfigDir = '';
-    if (process.platform === 'win32') {
-      obsConfigDir = path.join(process.env.APPDATA || '', 'obs-studio');
-    } else if (process.platform === 'darwin') {
-      obsConfigDir = path.join(os.homedir(), 'Library', 'Application Support', 'obs-studio');
-    } else {
-      const stdPath = path.join(os.homedir(), '.config', 'obs-studio');
-      const flatpakPath = path.join(os.homedir(), '.var', 'app', 'com.obsproject.Studio', 'config', 'obs-studio');
-      if (fs.existsSync(path.join(flatpakPath, 'user.ini'))) {
-        obsConfigDir = flatpakPath;
-      } else {
-        obsConfigDir = stdPath;
-      }
-    }
-
-    const userIniPath = path.join(obsConfigDir, 'user.ini');
-    if (!fs.existsSync(userIniPath)) {
-      return; // OBS config not found (maybe not installed or first-run)
-    }
-
-    const content = fs.readFileSync(userIniPath, 'utf8');
-    const targetDocks = [
-      { name: 'Relay Chat', url: `http://127.0.0.1:${httpPort}/chatdock.html` },
-      { name: 'Relay Alerts', url: `http://127.0.0.1:${httpPort}/alertdock.html` },
-      { name: 'Relay Events', url: `http://127.0.0.1:${httpPort}/eventdock.html` }
-    ];
-
-    // Find the [BasicWindow] section
-    const basicWindowIndex = content.indexOf('[BasicWindow]');
-    if (basicWindowIndex === -1) {
-      return; // Invalid or empty ini structure
-    }
-
-    // Read lines
-    let lines = content.split(/\r?\n/);
-    let extraDocksLineIdx = -1;
-    let basicWindowLineIdx = -1;
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (line === '[BasicWindow]') {
-        basicWindowLineIdx = i;
-      }
-      if (basicWindowLineIdx !== -1 && line.startsWith('ExtraBrowserDocks=')) {
-        extraDocksLineIdx = i;
-        break;
-      }
-      // If we reach another section, stop looking
-      if (basicWindowLineIdx !== -1 && i > basicWindowLineIdx && line.startsWith('[') && line.endsWith(']')) {
-        break;
-      }
-    }
-
-    let existingDocks = [];
-    if (extraDocksLineIdx !== -1) {
-      const value = lines[extraDocksLineIdx].split('ExtraBrowserDocks=')[1] || '';
-      if (value.trim()) {
-        existingDocks = value.split('|').map(item => {
-          const parts = item.split(':');
-          const name = parts[0];
-          const url = parts.slice(1).join(':'); // URL can have colons
-          return { name, url };
-        }).filter(d => d.name && d.url);
-      }
-    }
-
-    // Merge target docks into existing docks (updating url if name matches, or adding if new)
-    let updated = false;
-    for (const target of targetDocks) {
-      const existing = existingDocks.find(d => d.name === target.name);
-      if (existing) {
-        if (existing.url !== target.url) {
-          existing.url = target.url;
-          updated = true;
-        }
-      } else {
-        existingDocks.push(target);
-        updated = true;
-      }
-    }
-
-    if (!updated) {
-      return; // No changes needed
-    }
-
-    // Format new value
-    const newValue = existingDocks.map(d => `${d.name}:${d.url}`).join('|');
-    const newLine = `ExtraBrowserDocks=${newValue}`;
-
-    if (extraDocksLineIdx !== -1) {
-      lines[extraDocksLineIdx] = newLine;
-    } else if (basicWindowLineIdx !== -1) {
-      // Insert right after [BasicWindow]
-      lines.splice(basicWindowLineIdx + 1, 0, newLine);
-    }
-
-    fs.writeFileSync(userIniPath, lines.join('\n'), 'utf8');
-    websocketServer.logSystem('[OBS Integration] Automatically registered Custom Browser Docks inside OBS Studio config!');
-  } catch (err) {
-    console.error('Failed to register OBS docks:', err);
-  }
-}
 
