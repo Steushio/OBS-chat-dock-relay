@@ -35,7 +35,7 @@ if (Test-Path $installDir) {
 Write-Host "[*] Downloading OBS Chat Relay from GitHub..." -ForegroundColor Cyan
 
 # Download zip directly from GitHub
-$zipUrl = "https://github.com/steushio/OBS_CHAT/archive/refs/heads/main.zip"
+$zipUrl = "https://github.com/Steushio/OBS-chat-dock-relay/archive/refs/heads/main.zip"
 $zipPath = "$env:TEMP\obs-chat-main.zip"
 
 Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath
@@ -44,7 +44,11 @@ Write-Host "[*] Extracting application files..." -ForegroundColor Cyan
 Expand-Archive -Path $zipPath -DestinationPath "$env:TEMP\obs-chat-extracted" -Force
 
 # Move files to target directory
-Copy-Item -Path "$env:TEMP\obs-chat-extracted\OBS_CHAT-main\*" -Destination $installDir -Recurse -Force
+if (Test-Path "$env:TEMP\obs-chat-extracted\OBS-chat-dock-relay-main") {
+    Copy-Item -Path "$env:TEMP\obs-chat-extracted\OBS-chat-dock-relay-main\*" -Destination $installDir -Recurse -Force
+} else {
+    Copy-Item -Path "$env:TEMP\obs-chat-extracted\*\*" -Destination $installDir -Recurse -Force
+}
 
 # Clean up temp files
 Remove-Item -Path $zipPath -Force

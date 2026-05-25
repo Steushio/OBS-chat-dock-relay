@@ -53,13 +53,26 @@ fi
 echo -e "\033[0;36m[*] Downloading OBS Chat Relay from GitHub...\033[0m"
 
 # Download zip directly from GitHub
-curl -L "https://github.com/steushio/OBS_CHAT/archive/refs/heads/main.zip" -o "/tmp/obs-chat-main.zip"
+REPO="https://github.com/Steushio/OBS-chat-dock-relay"
+RELEASE_URL=$(curl -sL $REPO/releases/latest | grep -oE '/Steushio/OBS-chat-dock-relay/releases/download/[^\"]+')
+if [ -z "$RELEASE_URL" ]; then
+  ZIP_URL="$REPO/archive/refs/heads/main.zip"
+else
+  ZIP_URL="$REPO$RELEASE_URL"
+fi
+curl -L "$ZIP_URL" -o "/tmp/obs-chat-main.zip"
 
 echo -e "\033[0;36m[*] Extracting application files...\033[0m"
 unzip -qo "/tmp/obs-chat-main.zip" -d "/tmp/obs-chat-extracted"
 
 # Move files to target directory
-cp -r /tmp/obs-chat-extracted/OBS_CHAT-main/* "$INSTALL_DIR"
+# Zip from GitHub branch archive is nested inside OBS-chat-dock-relay-main/
+if [ -d "/tmp/obs-chat-extracted/OBS-chat-dock-relay-main" ]; then
+  cp -r /tmp/obs-chat-extracted/OBS-chat-dock-relay-main/* "$INSTALL_DIR"
+else
+  # Fallback in case of a tagged release zip structure
+  cp -r /tmp/obs-chat-extracted/*/* "$INSTALL_DIR" 2>/dev/null || cp -r /tmp/obs-chat-extracted/* "$INSTALL_DIR"
+fi
 
 # Clean up
 rm "/tmp/obs-chat-main.zip"
