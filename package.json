@@ -32,6 +32,19 @@
     "directories": {
       "output": "dist"
     },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "src/assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "OBS Chat Relay"
+    },
     "linux": {
       "target": [
         "AppImage"
