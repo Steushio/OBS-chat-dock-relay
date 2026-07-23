@@ -28,7 +28,7 @@ jobs:
 
       # 4️⃣ Build Windows Installer
       - name: Build Windows binaries
-        run: npx electron-builder --win
+        run: npx electron-builder --win --publish never
 
       # 5️⃣ Upload Installer as Artifact
       - name: Upload Windows Setup
