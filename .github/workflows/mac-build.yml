@@ -1,0 +1,73 @@
+name: Build macOS Release
+
+on:
+  push:
+    tags:
+      - 'v*'            # Trigger on version tags like v1.0.0
+  workflow_dispatch:   # Allows manual runs from the Actions tab
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      # -------------------------------------------------
+      # 1️⃣ Checkout the repo
+      # -------------------------------------------------
+      - uses: actions/checkout@v4
+
+      # -------------------------------------------------
+      # 2️⃣ Set up Node (choose the version you use locally)
+      # -------------------------------------------------
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'      # or whatever you need
+          cache: 'npm'
+
+      # -------------------------------------------------
+      # 3️⃣ Install dependencies (including dmg-license)
+      # -------------------------------------------------
+      - name: Install npm dependencies
+        run: npm ci
+
+      # -------------------------------------------------
+      # 4️⃣ Build for macOS (both dmg & zip)
+      # -------------------------------------------------
+      - name: Build macOS binaries
+        run: npm run build -- --mac   # uses electron-builder config in package.json
+
+      # -------------------------------------------------
+      # 5️⃣ Upload artifacts (the dmg & the unsigned zip)
+      # -------------------------------------------------
+      - name: Upload macOS dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: macOS-dmg
+          path: dist/*.dmg
+
+      - name: Upload macOS zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: macOS-zip
+          path: dist/*.zip
+
+      # -------------------------------------------------
+      # (Optional) Create a GitHub Release and attach assets
+      # -------------------------------------------------
+      - name: Create GitHub Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.dmg dist/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

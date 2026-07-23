@@ -1,0 +1,42 @@
+{
+  "name": "obs-chat-relay",
+  "version": "1.0.0",
+  "description": "Standalone Cross-Linux Electron App for automatic YouTube Stream Chat & Alert Capture to OBS Browser Docks",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --linux"
+  },
+  "keywords": [
+    "electron",
+    "youtube",
+    "livechat",
+    "obs",
+    "dock",
+    "relay",
+    "websocket"
+  ],
+  "author": "Antigravity",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.19.2",
+    "ws": "^8.17.0"
+  },
+  "devDependencies": {
+    "electron": "^30.5.1",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.obs.chat.relay",
+    "productName": "OBS Chat Relay",
+    "directories": {
+      "output": "dist"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Utility"
+    }
+  }
+}

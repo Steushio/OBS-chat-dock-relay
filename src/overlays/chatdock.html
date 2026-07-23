@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OBS Chat Dock</title>
+  <style>
+    :root {
+      --bg-dark: #18181b;
+      --bg-card: #1e1e1e;
+      --bg-hover: #27272a;
+      --border: #2e2e33;
+      --text-main: #e4e4e7;
+      --text-muted: #a1a1aa;
+      --color-owner: #ef4444;
+      --color-mod: #22c55e;
+      --color-member: #eab308;
+      --color-regular: #38bdf8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-size: 13px;
+      line-height: 1.4;
+      overflow: hidden;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Connection status bar */
+    #status-bar {
+      background-color: #0f0f11;
+      padding: 4px 8px;
+      font-size: 11px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: var(--text-muted);
+    }
+
+    .badge-indicator {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 4px;
+    }
+    .badge-indicator.connected { background-color: var(--color-mod); }
+    .badge-indicator.disconnected { background-color: var(--color-owner); }
+
+    /* Stream Info Header */
+    #stream-header {
+      background-color: var(--bg-card);
+      padding: 6px 10px;
+      font-size: 12px;
+      border-bottom: 1px solid var(--border);
+      font-weight: 500;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
+    }
+
+    /* Messages container */
+    #messages-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      scroll-behavior: auto;
+    }
+
+    /* Message Item */
+    .message-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+      padding: 4px 6px;
+      border-radius: 4px;
+      background-color: transparent;
+    }
+    .message-row:hover {
+      background-color: var(--bg-hover);
+    }
+
+    /* Avatar spacing */
+    .avatar {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background-color: #333;
+    }
+
+    /* Author info & Badges */
+    .author-wrapper {
+      display: inline-flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 3px;
+      font-weight: 600;
+      margin-right: 4px;
+    }
+
+    .author-name {
+      color: var(--text-main);
+    }
+    .author-name.owner { color: var(--color-owner); }
+    .author-name.moderator { color: var(--color-mod); }
+    .author-name.member { color: var(--color-member); }
+    .author-name.regular { color: var(--color-regular); }
+
+    .badge-icon {
+      font-size: 10px;
+      padding: 1px 3px;
+      border-radius: 3px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .badge-icon.owner { background-color: rgba(239, 68, 68, 0.2); color: var(--color-owner); }
+    .badge-icon.moderator { background-color: rgba(34, 197, 94, 0.2); color: var(--color-mod); }
+    .badge-icon.member { background-color: rgba(234, 179, 8, 0.2); color: var(--color-member); }
+
+    .message-text {
+      word-break: break-word;
+      color: var(--text-main);
+    }
+
+    /* Alerts in Chat List */
+    .alert-card {
+      padding: 8px 10px;
+      border-radius: 6px;
+      margin: 3px 0;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-left: 4px solid var(--color-member);
+      font-size: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .alert-card.superchat {
+      background-color: rgba(239, 68, 68, 0.12);
+      border-left-color: var(--color-owner);
+    }
+    .alert-card.sticker {
+      background-color: rgba(249, 115, 22, 0.12);
+      border-left-color: #f97316;
+    }
+    .alert-card.membership {
+      background-color: rgba(234, 179, 8, 0.12);
+      border-left-color: var(--color-member);
+    }
+    .alert-card.gift {
+      background-color: rgba(168, 85, 247, 0.12);
+      border-left-color: #a855f7;
+    }
+    .alert-card.subscription {
+      background-color: rgba(34, 197, 94, 0.1);
+      border-left-color: #22c55e;
+    }
+    .alert-header {
+      font-weight: bold;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .alert-title {
+      font-size: 12px;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .alert-amount {
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 4px;
+      background-color: rgba(255, 255, 255, 0.15);
+    }
+    .superchat .alert-amount { background-color: rgba(239, 68, 68, 0.25); color: #fca5a5; }
+    .sticker .alert-amount { background-color: rgba(249, 115, 22, 0.25); color: #fed7aa; }
+    .membership .alert-amount { background-color: rgba(234, 179, 8, 0.25); color: #fef08a; }
+    .gift .alert-amount { background-color: rgba(168, 85, 247, 0.25); color: #e9d5ff; }
+    .subscription .alert-amount { background-color: rgba(34, 197, 94, 0.25); color: #bbf7d0; }
+
+    /* Scroll lock overlay alert */
+    #scroll-notice {
+      position: absolute;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: var(--color-regular);
+      color: #0f0f11;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: bold;
+      cursor: pointer;
+      display: none;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+      z-index: 10;
+    }
+
+    /* Low resource overrides */
+    .low-res .avatar {
+      display: none !important;
+    }
+    .low-res .message-row {
+      padding: 2px 4px;
+    }
+    .low-res * {
+      box-shadow: none !important;
+      text-shadow: none !important;
+      transition: none !important;
+      animation: none !important;
+    }
+
+    /* Refresh stream button */
+    #refresh-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 4px;
+      margin-left: 6px;
+      border-radius: 50%;
+      vertical-align: middle;
+      transition: color 0.2s, background-color 0.2s, transform 0.1s;
+    }
+    #refresh-btn:hover {
+      color: var(--text-main);
+      background-color: var(--bg-hover);
+    }
+    #refresh-btn:active {
+      transform: scale(0.85);
+    }
+    #refresh-btn.spinning svg {
+      animation: spin 1s linear infinite;
+    }
+    #refresh-btn.success {
+      color: #53fc18 !important;
+    }
+    #refresh-btn.failure {
+      color: #f43f5e !important;
+    }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div id="status-bar">
+    <div>
+      <span id="status-dot" class="badge-indicator disconnected"></span>
+      <span id="status-text">Disconnected</span>
+      <button id="refresh-btn" onclick="refreshStreamSearch()" title="Check for New Stream ID">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21.5 2v6h-6"/>
+          <path d="M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+        </svg>
+      </button>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <span id="kick-viewers-count-badge" style="display: none; align-items: center; gap: 4px; color: #53fc18; font-weight: bold;" title="Kick Viewers">
+        <span>👥</span> <span id="kick-viewers-count">0</span>
+      </span>
+      <span id="viewers-count-badge" style="display: none; align-items: center; gap: 4px; color: #f43f5e; font-weight: bold;" title="YouTube Viewers">
+        <span>👥</span> <span id="viewers-count">0</span>
+      </span>
+      <div id="connection-info">Local WS</div>
+    </div>
+  </div>
+
+  <div id="stream-header">No Active Stream Detected</div>
+
+  <div id="messages-container">
+    <!-- Messages appended dynamically -->
+  </div>
+
+  <div id="scroll-notice" onclick="scrollToBottom(true)">↓ New messages below</div>
+
+  <script>
+    const container = document.getElementById('messages-container');
+    const statusDot = document.getElementById('status-dot');
+    const statusText = document.getElementById('status-text');
+    const streamHeader = document.getElementById('stream-header');
+    const scrollNotice = document.getElementById('scroll-notice');
+    const viewersCountBadge = document.getElementById('viewers-count-badge');
+    const viewersCount = document.getElementById('viewers-count');
+    const kickViewersCountBadge = document.getElementById('kick-viewers-count-badge');
+    const kickViewersCount = document.getElementById('kick-viewers-count');
+    
+    let isAutoScrollLocked = true;
+    let ws = null;
+    let maxMessages = 150;
+    let lowResourceMode = false;
+    let audioSettings = {};
+    let checkingStream = false;
+    let checkTimeout = null;
+
+    function playAudio(category) {
+      if (category === 'chat') {
+        if (!audioSettings.chatSoundEnabled) return;
+        const volume = (audioSettings.chatSoundVolume !== undefined ? audioSettings.chatSoundVolume : 100) / 100;
+        if (audioSettings.chatSoundType === 'default') {
+          playSyntheticTone('chat', volume);
+        } else if (audioSettings.chatSoundFile) {
+          const audio = new Audio(`/audio?path=${encodeURIComponent(audioSettings.chatSoundFile)}`);
+          audio.volume = volume;
+          audio.play().catch(e => console.error(e));
+        }
+      } else {
+        if (!audioSettings.alertSoundEnabled) return;
+        const volume = (audioSettings.alertSoundVolume !== undefined ? audioSettings.alertSoundVolume : 100) / 100;
+        if (audioSettings.alertSoundType === 'default') {
+          playSyntheticTone('alert', volume);
+        } else if (audioSettings.alertSoundFile) {
+          const audio = new Audio(`/audio?path=${encodeURIComponent(audioSettings.alertSoundFile)}`);
+          audio.volume = volume;
+          audio.play().catch(e => console.error(e));
+        }
+      }
+    }
+
+    function playSyntheticTone(category, volume) {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        if (category === 'chat') {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(880, ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.15);
+          gain.gain.setValueAtTime(volume, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.3);
+        } else {
+          const osc1 = ctx.createOscillator();
+          const gain1 = ctx.createGain();
+          osc1.connect(gain1);
+          gain1.connect(ctx.destination);
+          osc1.type = 'sine';
+          osc1.frequency.setValueAtTime(587.33, ctx.currentTime);
+          gain1.gain.setValueAtTime(volume, ctx.currentTime);
+          gain1.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+          osc1.start();
+          osc1.stop(ctx.currentTime + 0.2);
+          setTimeout(() => {
+            try {
+              const osc2 = ctx.createOscillator();
+              const gain2 = ctx.createGain();
+              osc2.connect(gain2);
+              gain2.connect(ctx.destination);
+              osc2.type = 'sine';
+              osc2.frequency.setValueAtTime(880, ctx.currentTime);
+              gain2.gain.setValueAtTime(volume, ctx.currentTime);
+              gain2.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+              osc2.start();
+              osc2.stop(ctx.currentTime + 0.4);
+            } catch (e) {}
+          }, 120);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    
+    // Detect scrolling to toggle auto-scroll lock
+    container.addEventListener('scroll', () => {
+      const threshold = 40; // px
+      const isAtBottom = container.scrollHeight - container.clientHeight - container.scrollTop < threshold;
+      isAutoScrollLocked = isAtBottom;
+      
+      if (isAutoScrollLocked) {
+        scrollNotice.style.display = 'none';
+      }
+    });
+
+    function scrollToBottom(force = false) {
+      if (isAutoScrollLocked || force) {
+        container.scrollTop = container.scrollHeight;
+        scrollNotice.style.display = 'none';
+      }
+    }
+
+    // Connect to WebSocket using dynmically fetched configuration
+    async function connect() {
+      try {
+        statusText.innerText = 'Connecting...';
+        // Get dynamic port from current origin Express status
+        const response = await fetch('/status');
+        const config = await response.json();
+        
+        const wsPort = config.wsPort || 3001;
+        lowResourceMode = config.lowResourceMode || false;
+        
+        if (lowResourceMode) {
+          document.body.classList.add('low-res');
+          maxMessages = 40;
+        }
+
+        ws = new WebSocket(`ws://127.0.0.1:${wsPort}`);
+
+        ws.onopen = () => {
+          statusDot.className = 'badge-indicator connected';
+          statusText.innerText = 'Connected';
+        };
+
+        ws.onmessage = (event) => {
+          const payload = JSON.parse(event.data);
+          handleWebSocketMessage(payload);
+        };
+
+        ws.onclose = () => {
+          statusDot.className = 'badge-indicator disconnected';
+          statusText.innerText = 'Disconnected';
+          setTimeout(connect, 3000); // Retry reconnect in 3s
+        };
+
+        ws.onerror = (err) => {
+          console.error('WS Error:', err);
+          ws.close();
+        };
+
+      } catch (err) {
+        console.error('Failed fetching dynamic port status, retrying in 3s...', err);
+        statusText.innerText = 'Retry config...';
+        setTimeout(connect, 3000);
+      }
+    }
+
+    function updateKickViewersUI(kickData) {
+      if (!kickData) {
+        kickViewersCountBadge.style.display = 'none';
+        return;
+      }
+      const isLive = kickData.isLive || (kickData.viewers !== undefined && kickData.viewers !== null && kickData.viewers > 0);
+      if (isLive && kickData.viewers !== undefined && kickData.viewers !== null) {
+        kickViewersCount.innerText = kickData.viewers;
+        kickViewersCountBadge.style.display = 'inline-flex';
+      } else {
+        kickViewersCountBadge.style.display = 'none';
+      }
+    }
+
+    function handleWebSocketMessage(payload) {
+      const { event, data } = payload;
+
+      if (event === 'handshake') {
+        if (data.audioSettings) {
+          audioSettings = data.audioSettings;
+        }
+        if (data.stream) {
+          streamHeader.innerText = `Stream: ${data.stream.title} (${data.stream.liveState})`;
+          if (data.stream.liveState === 'live' && data.stream.concurrentViewers !== undefined && data.stream.concurrentViewers !== null) {
+            viewersCount.innerText = data.stream.concurrentViewers;
+            viewersCountBadge.style.display = 'inline-flex';
+          } else {
+            viewersCountBadge.style.display = 'none';
+          }
+        }
+        if (data.kickStream) {
+          updateKickViewersUI(data.kickStream);
+        }
+      }
+
+      if (event === 'settings_update') {
+        if (data.audioSettings) {
+          audioSettings = data.audioSettings;
+        }
+      }
+
+      if (event === 'stream_update') {
+        const isLive = data && data.liveState === 'live';
+        if (data) {
+          streamHeader.innerText = `Stream: ${data.title} (${data.liveState})`;
+          if (data.liveState === 'live' && data.concurrentViewers !== undefined && data.concurrentViewers !== null) {
+            viewersCount.innerText = data.concurrentViewers;
+            viewersCountBadge.style.display = 'inline-flex';
+          } else {
+            viewersCountBadge.style.display = 'none';
+          }
+        } else {
+          streamHeader.innerText = 'No Active Stream';
+          viewersCountBadge.style.display = 'none';
+        }
+
+        if (checkingStream && isLive) {
+          checkingStream = false;
+          const btn = document.getElementById('refresh-btn');
+          btn.classList.remove('spinning', 'failure');
+          if (checkTimeout) clearTimeout(checkTimeout);
+          
+          btn.classList.add('success');
+          checkTimeout = setTimeout(() => {
+            btn.classList.remove('success');
+          }, 5000);
+        }
+      }
+
+      if (event === 'kick_update') {
+        updateKickViewersUI(data);
+      }
+
+      if (event === 'clear_state') {
+        container.innerHTML = '';
+        streamHeader.innerText = 'No Active Stream';
+        viewersCountBadge.style.display = 'none';
+        kickViewersCountBadge.style.display = 'none';
+      }
+
+      if (event === 'chat' || event === 'alert') {
+        appendMessage(data);
+        if (data.type === 'chat') {
+          playAudio('chat');
+        } else {
+          playAudio('alert');
+        }
+      }
+    }
+
+    function appendMessage(item) {
+      if (!item) return;
+
+      // Prevent duplicates
+      if (item.id && document.getElementById(item.id)) {
+        return;
+      }
+
+      // Manage DOM size
+      while (container.children.length >= maxMessages) {
+        container.removeChild(container.firstChild);
+      }
+
+      // Check scroll lock
+      const wasAtBottom = isAutoScrollLocked;
+
+      if (item.type === 'chat') {
+        const row = document.createElement('div');
+        row.className = 'message-row';
+        if (item.id) row.id = item.id;
+
+        // Avatar
+        let avatarHtml = '';
+        if (!lowResourceMode && item.avatar) {
+          avatarHtml = `<img class="avatar" src="${item.avatar}" onerror="this.style.display='none'">`;
+        }
+
+        // Badges
+        let badgeHtml = '';
+        let roleClass = 'regular';
+        
+        if (Array.isArray(item.badges)) {
+          if (item.badges.includes('owner')) {
+            badgeHtml = `<span class="badge-icon owner">Broadcaster</span>`;
+            roleClass = 'owner';
+          } else if (item.badges.includes('moderator')) {
+            badgeHtml = `<span class="badge-icon moderator">Mod</span>`;
+            roleClass = 'moderator';
+          } else if (item.badges.includes('member')) {
+            badgeHtml = `<span class="badge-icon member">Member</span>`;
+            roleClass = 'member';
+          }
+        }
+
+        const platform = item.platform || 'youtube';
+        const platformBadge = platform === 'kick' 
+          ? `<span class="badge-icon" style="background-color: rgba(83, 252, 24, 0.15); color: #53fc18; border: 1px solid rgba(83, 252, 24, 0.3); margin-right: 4px; font-size: 9px; font-weight: bold; padding: 1px 3px; border-radius: 3px;">KICK</span>`
+          : `<span class="badge-icon" style="background-color: rgba(255, 0, 0, 0.15); color: #ff3e3e; border: 1px solid rgba(255, 0, 0, 0.3); margin-right: 4px; font-size: 9px; font-weight: bold; padding: 1px 3px; border-radius: 3px;">YT</span>`;
+
+        row.innerHTML = `
+          ${avatarHtml}
+          <div>
+            <span class="author-wrapper">
+              ${platformBadge}
+              <span class="author-name ${roleClass}">${item.username || 'Anonymous'}</span>
+              ${badgeHtml}
+            </span>
+            <span class="message-text">${item.message || ''}</span>
+          </div>
+        `;
+        container.appendChild(row);
+      } else {
+        // Render Embedded Alert Cards (Super Chats, Stickers, Memberships, Gifts, Subscriptions/Follows)
+        const card = document.createElement('div');
+        if (item.id) card.id = item.id;
+
+        const platform = item.platform || 'youtube';
+        const platformBadge = platform === 'kick' 
+          ? `<span class="badge-icon" style="background-color: rgba(83, 252, 24, 0.15); color: #53fc18; border: 1px solid rgba(83, 252, 24, 0.3); margin-left: 6px; font-size: 9px; font-weight: bold; padding: 1px 3px; border-radius: 3px; vertical-align: middle;">KICK</span>`
+          : `<span class="badge-icon" style="background-color: rgba(255, 0, 0, 0.15); color: #ff3e3e; border: 1px solid rgba(255, 0, 0, 0.3); margin-left: 6px; font-size: 9px; font-weight: bold; padding: 1px 3px; border-radius: 3px; vertical-align: middle;">YT</span>`;
+
+        if (item.type === 'superchat' || item.type === 'sticker') {
+          card.className = item.type === 'sticker' ? 'alert-card sticker' : 'alert-card superchat';
+          if (item.color) card.style.borderLeftColor = item.color;
+          const titleLabel = item.type === 'sticker' ? '🎨 Super Sticker' : '💰 Super Chat';
+          const msg = item.message ? `<div>${item.message}</div>` : '';
+          const stickerImg = item.stickerUrl ? `<div><img src="${item.stickerUrl}" style="max-height:50px;max-width:50px;object-fit:contain;margin-top:2px;" onerror="this.style.display='none'"></div>` : '';
+          card.innerHTML = `
+            <div class="alert-header">
+              <span class="alert-title">${titleLabel}: ${item.username || 'Anonymous'} ${platformBadge}</span>
+              <span class="alert-amount">${item.amount || 'SuperChat'}</span>
+            </div>
+            ${msg}
+            ${stickerImg}
+          `;
+        } else if (item.type === 'subscription') {
+          card.className = 'alert-card subscription';
+          card.innerHTML = `
+            <div class="alert-header">
+              <span class="alert-title">⭐ New Subscriber / Follower: ${item.username || 'Subscriber'} ${platformBadge}</span>
+              <span class="alert-amount">SUB</span>
+            </div>
+            <div>${item.message || 'Just subscribed!'}</div>
+          `;
+        } else if (item.type === 'membership_gift' || item.type === 'membership_redeemed') {
+          card.className = 'alert-card gift';
+          const titleLabel = item.type === 'membership_gift' ? '🎁 Gift Sub' : '🎉 Sub Claimed';
+          card.innerHTML = `
+            <div class="alert-header">
+              <span class="alert-title">${titleLabel}: ${item.username || 'Member'} ${platformBadge}</span>
+              <span class="alert-amount">GIFT</span>
+            </div>
+            <div>${item.message || ''}</div>
+          `;
+        } else {
+          // membership
+          card.className = 'alert-card membership';
+          card.innerHTML = `
+            <div class="alert-header">
+              <span class="alert-title">👑 New Member: ${item.username || 'Member'} ${platformBadge}</span>
+              <span class="alert-amount">MEMBER</span>
+            </div>
+            <div>${item.message || 'Joined channel membership!'}</div>
+          `;
+        }
+
+        container.appendChild(card);
+      }
+
+
+      if (wasAtBottom) {
+        scrollToBottom();
+      } else {
+        scrollNotice.style.display = 'block';
+      }
+    }
+
+    async function refreshStreamSearch() {
+      const btn = document.getElementById('refresh-btn');
+      if (btn.classList.contains('spinning') || checkingStream) return;
+      
+      btn.classList.remove('success', 'failure');
+      if (checkTimeout) clearTimeout(checkTimeout);
+
+      try {
+        btn.classList.add('spinning');
+        checkingStream = true;
+        
+        // Start a 6-second timeout: if no active stream is intercepted, mark it as failure (red)
+        checkTimeout = setTimeout(() => {
+          if (checkingStream) {
+            checkingStream = false;
+            btn.classList.remove('spinning');
+            btn.classList.add('failure');
+            checkTimeout = setTimeout(() => {
+              btn.classList.remove('failure');
+            }, 5000);
+          }
+        }, 6000);
+
+        const response = await fetch('/refresh-stream');
+        const data = await response.json();
+        
+        if (!data.success) {
+          throw new Error('Failed');
+        }
+      } catch (err) {
+        if (checkTimeout) clearTimeout(checkTimeout);
+        checkingStream = false;
+        btn.classList.remove('spinning');
+        btn.classList.add('failure');
+        checkTimeout = setTimeout(() => {
+          btn.classList.remove('failure');
+        }, 5000);
+      }
+    }
+
+    // Initialize
+    connect();
+  </script>
+</body>
+</html>
