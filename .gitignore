@@ -22,3 +22,6 @@ memory/
 
 # Reference materials
 Reference/
+
+# Local custom paths
+src/main/wine-env/
