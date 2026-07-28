@@ -93,31 +93,18 @@ class KickCapture {
   }
 
   async resolveChannelData(username) {
-    // Try lightweight zero-CPU net.fetch first
-    try {
-      const { net } = require('electron');
-      const response = await net.fetch(`https://kick.com/api/v2/channels/${username}`, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          'Accept': 'application/json'
-        }
-      });
-      if (response.ok) {
-        const json = await response.json();
-        const chatroomId = json?.chatroom?.id;
-        const isLive = !!json?.livestream?.is_live;
-        const viewers = isLive ? (json?.livestream?.viewer_count ?? json?.livestream?.viewers ?? 0) : 0;
-        if (chatroomId) {
-          return { chatroomId, viewers, isLive };
-        }
-      }
-    } catch (e) {
-      // Fallback to BrowserWindow if blocked by Cloudflare
-    }
 
     return new Promise((resolve, reject) => {
       this.updateStatusUI('Resolving Chatroom ID...', this.viewers || 0, this.isLive);
       
+      const timeoutId = setTimeout(() => {
+        if (this.tempWindow && !this.tempWindow.isDestroyed()) {
+          this.tempWindow.webContents.removeAllListeners('did-finish-load');
+          this.tempWindow.webContents.removeAllListeners('did-fail-load');
+        }
+        reject(new Error('Timeout loading Kick channel page'));
+      }, 20000);
+
       if (!this.tempWindow || this.tempWindow.isDestroyed()) {
         this.tempWindow = new BrowserWindow({
           width: 100,
@@ -145,9 +132,23 @@ class KickCapture {
       const win = this.tempWindow;
 
       const handleLoadFinish = async () => {
+        clearTimeout(timeoutId);
         try {
-          const bodyText = await win.webContents.executeJavaScript('document.body.innerText');
-          const json = JSON.parse(bodyText);
+          // Execute fetch inside the cleared page context to inherit Cloudflare cookies & same-origin bypass
+          const json = await win.webContents.executeJavaScript(`
+            fetch('https://kick.com/api/v2/channels/${username}')
+              .then(r => {
+                if (!r.ok) throw new Error('API failed with status ' + r.status);
+                return r.json();
+              })
+              .catch(() => null)
+          `);
+
+          if (!json) {
+            reject(new Error('Failed to fetch channel API from page context'));
+            return;
+          }
+
           const chatroomId = json?.chatroom?.id;
           const isLive = !!json?.livestream?.is_live;
           const viewers = isLive ? (json?.livestream?.viewer_count ?? json?.livestream?.viewers ?? 0) : 0;
@@ -165,15 +166,17 @@ class KickCapture {
       };
 
       const handleLoadFail = (event, errorCode, errorDescription) => {
+        clearTimeout(timeoutId);
         win.webContents.removeAllListeners('did-finish-load');
         win.webContents.removeAllListeners('did-fail-load');
-        reject(new Error(`Failed to load Kick API page: ${errorDescription} (${errorCode})`));
+        reject(new Error(`Failed to load Kick channel page: ${errorDescription} (${errorCode})`));
       };
 
       win.webContents.on('did-finish-load', handleLoadFinish);
       win.webContents.on('did-fail-load', handleLoadFail);
 
-      win.loadURL(`https://kick.com/api/v2/channels/${username}`);
+      // Load main channel page so browser solves Cloudflare challenges
+      win.loadURL(`https://kick.com/${username}`);
     });
   }
 
