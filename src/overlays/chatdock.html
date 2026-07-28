@@ -86,9 +86,11 @@
       display: flex;
       align-items: flex-start;
       gap: 6px;
-      padding: 4px 6px;
-      border-radius: 4px;
-      background-color: transparent;
+      padding: 6px 8px;
+      border-radius: 6px;
+      background-color: rgba(255, 255, 255, 0.015);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      margin-bottom: 4px;
     }
     .message-row:hover {
       background-color: var(--bg-hover);
@@ -116,6 +118,8 @@
     .author-name {
       color: var(--text-main);
     }
+    .author-name.youtube { color: #f43f5e !important; } /* YouTube Red */
+    .author-name.kick { color: #53fc18 !important; }    /* Kick Green */
     .author-name.owner { color: var(--color-owner); }
     .author-name.moderator { color: var(--color-mod); }
     .author-name.member { color: var(--color-member); }
@@ -314,6 +318,17 @@
     let audioSettings = {};
     let checkingStream = false;
     let checkTimeout = null;
+    let messageColorIndex = 0;
+    const outlineColors = [
+      'rgba(83, 252, 24, 0.45)',   // Kick Green
+      'rgba(244, 63, 94, 0.45)',   // YouTube Red
+      'rgba(14, 165, 233, 0.45)',  // Cyan Blue
+      'rgba(234, 179, 8, 0.45)',   // Amber Gold
+      'rgba(168, 85, 247, 0.45)',  // Purple
+      'rgba(249, 115, 22, 0.45)',  // Orange
+      'rgba(236, 72, 153, 0.45)',  // Pink
+      'rgba(20, 184, 166, 0.45)'   // Teal
+    ];
 
     function playAudio(category) {
       if (category === 'chat') {
@@ -588,12 +603,17 @@
           ? `<span class="badge-icon" style="background-color: rgba(83, 252, 24, 0.15); color: #53fc18; border: 1px solid rgba(83, 252, 24, 0.3); margin-right: 4px; font-size: 9px; font-weight: bold; padding: 1px 3px; border-radius: 3px;">KICK</span>`
           : `<span class="badge-icon" style="background-color: rgba(255, 0, 0, 0.15); color: #ff3e3e; border: 1px solid rgba(255, 0, 0, 0.3); margin-right: 4px; font-size: 9px; font-weight: bold; padding: 1px 3px; border-radius: 3px;">YT</span>`;
 
+        // Cycle through neon outline colors for visual distinction
+        const outlineColor = outlineColors[messageColorIndex];
+        messageColorIndex = (messageColorIndex + 1) % outlineColors.length;
+        row.style.borderColor = outlineColor;
+
         row.innerHTML = `
           ${avatarHtml}
           <div>
             <span class="author-wrapper">
               ${platformBadge}
-              <span class="author-name ${roleClass}">${item.username || 'Anonymous'}</span>
+              <span class="author-name ${platform} ${roleClass}">${item.username || 'Anonymous'}</span>
               ${badgeHtml}
             </span>
             <span class="message-text">${item.message || ''}</span>
