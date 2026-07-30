@@ -63,7 +63,7 @@ curl -fsSL https://raw.githubusercontent.com/Steushio/OBS-chat-dock-relay/main/i
 
 > Works on Ubuntu, Linux Mint, Fedora, Arch, Pop!_OS, Debian, Manjaro, and more. Automatically creates an **app menu entry**.
 
-### 🍏 macOS
+### 🍏 macOS - Discontinued 
 
 Open **Terminal** and paste:
 
