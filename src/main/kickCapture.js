@@ -16,34 +16,42 @@ class KickCapture {
     this.lastStatusText = 'Idle';
   }
 
-  async start(username) {
+  async start(username, retryCount = 0) {
     if (!username) return;
     
-    // Stop any existing capture first
-    this.stop();
+    if (retryCount === 0) {
+      this.stop();
+      this.username = username;
+      this.isEnabled = true;
+      websocketServer.logSystem(`[Kick] Starting capture for channel: ${username}`);
+    }
 
-    this.username = username;
-    this.isEnabled = true;
-    websocketServer.logSystem(`[Kick] Starting capture for channel: ${username}`);
-    
     try {
+      this.updateStatusUI(retryCount > 0 ? `Resolving Chatroom ID (Attempt ${retryCount + 1}/4)...` : 'Resolving Chatroom ID...', 0, false);
       const channelData = await this.resolveChannelData(username);
       this.chatroomId = channelData.chatroomId;
       this.viewers = channelData.viewers;
       this.isLive = channelData.isLive;
 
       if (!this.chatroomId) {
-        websocketServer.logSystem(`[Kick] Failed to resolve chatroom ID for ${username}`, 'error');
-        this.updateStatusUI('Failed to resolve Chatroom ID', 0, false);
-        return;
+        throw new Error('Chatroom ID resolved as null or empty');
       }
+
       websocketServer.logSystem(`[Kick] Chatroom ID resolved: ${this.chatroomId} (Viewers: ${this.viewers}, Live: ${this.isLive})`);
       this.updateStatusUI('Connecting WebSocket...', this.viewers, this.isLive);
       this.connectWebSocket();
       this.startViewerPolling();
     } catch (err) {
-      websocketServer.logSystem(`[Kick] Error resolving chatroom ID: ${err.message}`, 'error');
-      this.updateStatusUI(`Error: ${err.message}`, 0, false);
+      if (this.isEnabled && retryCount < 3) {
+        websocketServer.logSystem(`[Kick] Chatroom ID resolution attempt ${retryCount + 1} failed: ${err.message}. Retrying in 3s...`, 'warn');
+        this.updateStatusUI(`Retrying in 3s (${retryCount + 1}/4)...`, 0, false);
+        this.reconnectTimeout = setTimeout(() => {
+          if (this.isEnabled) this.start(username, retryCount + 1);
+        }, 3000);
+      } else {
+        websocketServer.logSystem(`[Kick] Failed to resolve chatroom ID after retries: ${err.message}`, 'error');
+        this.updateStatusUI(`Failed to resolve Chatroom ID`, 0, false);
+      }
     }
   }
 
@@ -93,17 +101,14 @@ class KickCapture {
   }
 
   async resolveChannelData(username) {
-
     return new Promise((resolve, reject) => {
-      this.updateStatusUI('Resolving Chatroom ID...', this.viewers || 0, this.isLive);
-      
       const timeoutId = setTimeout(() => {
         if (this.tempWindow && !this.tempWindow.isDestroyed()) {
           this.tempWindow.webContents.removeAllListeners('did-finish-load');
           this.tempWindow.webContents.removeAllListeners('did-fail-load');
         }
         reject(new Error('Timeout loading Kick channel page'));
-      }, 20000);
+      }, 25000);
 
       if (!this.tempWindow || this.tempWindow.isDestroyed()) {
         this.tempWindow = new BrowserWindow({
@@ -116,7 +121,7 @@ class KickCapture {
             nodeIntegration: false,
             contextIsolation: true,
             sandbox: true,
-            backgroundThrottling: true,
+            backgroundThrottling: false,
             paintWhenInitiallyHidden: false,
             images: false,
             webgl: false,
@@ -134,18 +139,54 @@ class KickCapture {
       const handleLoadFinish = async () => {
         clearTimeout(timeoutId);
         try {
-          // Execute fetch inside the cleared page context to inherit Cloudflare cookies & same-origin bypass
+          // Multi-strategy extraction script inside page context
           const json = await win.webContents.executeJavaScript(`
-            fetch('https://kick.com/api/v2/channels/${username}')
-              .then(r => {
-                if (!r.ok) throw new Error('API failed with status ' + r.status);
-                return r.json();
-              })
-              .catch(() => null)
+            (async function() {
+              const username = ${JSON.stringify(username)};
+              
+              // Strategy 1: Check embedded __NEXT_DATA__ or DOM script tags
+              try {
+                const nextDataEl = document.getElementById('__NEXT_DATA__');
+                if (nextDataEl && nextDataEl.textContent) {
+                  const parsed = JSON.parse(nextDataEl.textContent);
+                  const channel = parsed?.props?.pageProps?.channel;
+                  if (channel?.chatroom?.id) {
+                    return {
+                      chatroom: channel.chatroom,
+                      livestream: channel.livestream
+                    };
+                  }
+                }
+              } catch (e) {}
+
+              // Strategy 2: Fetch API with retries & clearance delay
+              const endpoints = [
+                'https://kick.com/api/v2/channels/' + username,
+                'https://kick.com/api/v1/channels/' + username,
+                'https://kick.com/api/internal/v1/channels/' + username
+              ];
+
+              for (const endpoint of endpoints) {
+                for (let attempt = 0; attempt < 3; attempt++) {
+                  try {
+                    const res = await fetch(endpoint, {
+                      headers: { 'Accept': 'application/json' }
+                    });
+                    if (res.ok) {
+                      const data = await res.json();
+                      if (data?.chatroom?.id) return data;
+                    }
+                  } catch (e) {}
+                  await new Promise(r => setTimeout(r, 1200));
+                }
+              }
+
+              return null;
+            })();
           `);
 
           if (!json) {
-            reject(new Error('Failed to fetch channel API from page context'));
+            reject(new Error('Failed to resolve Kick channel data from page context'));
             return;
           }
 
