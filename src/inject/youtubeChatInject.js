@@ -207,6 +207,73 @@ function parseChatElement(node) {
   return null;
 }
 
+// Live YouTube Poll Tracker
+let lastPollHash = '';
+
+function checkAndSendPoll() {
+  try {
+    const pollEl = document.querySelector('yt-live-chat-poll-renderer, yt-live-chat-viewer-engagement-message-renderer[has-poll], #banner yt-live-chat-poll-renderer, yt-live-chat-banner-header-renderer');
+    if (!pollEl) {
+      if (lastPollHash !== '') {
+        lastPollHash = '';
+        ipcRenderer.send('chat-event', { type: 'poll_ended', platform: 'youtube', timestamp: Date.now() });
+      }
+      return;
+    }
+
+    const questionEl = pollEl.querySelector('#question, #header, #title, #primary-text, yt-formatted-string#question');
+    const totalVotesEl = pollEl.querySelector('#sub-header, #total-votes, #vote-count, #header-subtext, #secondary-text');
+    const choiceEls = pollEl.querySelectorAll('yt-live-chat-poll-choice-renderer, #options > *, #choices > *, .poll-choice');
+
+    const question = questionEl ? questionEl.textContent.trim() : 'YouTube Live Stream Poll';
+    const totalVotes = totalVotesEl ? totalVotesEl.textContent.trim() : '';
+
+    const choices = [];
+    choiceEls.forEach((el, index) => {
+      const textEl = el.querySelector('#text, #option-text, #text-content, yt-formatted-string');
+      const ratioEl = el.querySelector('#percentage, #vote-percentage, .percentage, #ratio-bar');
+      
+      let text = textEl ? textEl.textContent.trim() : `Option ${index + 1}`;
+      let percentage = ratioEl ? ratioEl.textContent.trim() : '0%';
+
+      if (!percentage || percentage === '0%') {
+        const styleWidth = el.querySelector('#ratio-bar')?.style?.width;
+        if (styleWidth) percentage = styleWidth;
+      }
+
+      const isSelected = el.hasAttribute('is-selected') || el.classList.contains('selected');
+      const isWinner = el.hasAttribute('is-winner') || el.classList.contains('winner');
+
+      choices.push({
+        text,
+        percentage,
+        isSelected,
+        isWinner
+      });
+    });
+
+    if (choices.length === 0) return;
+
+    const pollData = {
+      type: 'poll',
+      platform: 'youtube',
+      id: pollEl.getAttribute('id') || 'active_yt_poll',
+      question,
+      totalVotes,
+      choices,
+      timestamp: Date.now()
+    };
+
+    const currentHash = JSON.stringify({ question, totalVotes, choices });
+    if (currentHash !== lastPollHash) {
+      lastPollHash = currentHash;
+      ipcRenderer.send('chat-event', pollData);
+    }
+  } catch (err) {
+    console.error('[OBS Chat Interceptor] Error parsing poll:', err);
+  }
+}
+
 // Function to initialize MutationObserver once elements are loaded
 function initObserver() {
   const itemsContainer = document.querySelector('#items.yt-live-chat-item-list-renderer');
@@ -234,6 +301,9 @@ function initObserver() {
 
   observer.observe(itemsContainer, { childList: true });
   ipcRenderer.send('chat-observer-ready', { status: 'observing' });
+
+  // Periodically check for active YouTube live polls every 1.5 seconds
+  setInterval(checkAndSendPoll, 1500);
 }
 
 // Start polling for chat container

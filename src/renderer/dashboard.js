@@ -6,6 +6,7 @@ const globalStatusText = document.getElementById('global-status-text');
 
 const sessionStatusText = document.getElementById('session-status-text');
 const btnLogin = document.getElementById('btn-login');
+const btnSwitchChannel = document.getElementById('btn-switch-channel');
 const btnLogout = document.getElementById('btn-logout');
 
 const toggleMonitor = document.getElementById('toggle-monitor');
@@ -68,6 +69,7 @@ const toggleBotKick = document.getElementById('toggle-bot-kick');
 const selectYtAccountMode = document.getElementById('select-yt-account-mode');
 const ytBotLoginGroup = document.getElementById('yt-bot-login-group');
 const btnYtBotLogin = document.getElementById('btn-yt-bot-login');
+const btnYtBotSwitch = document.getElementById('btn-yt-bot-switch');
 const btnYtBotLogout = document.getElementById('btn-yt-bot-logout');
 const ytBotStatus = document.getElementById('yt-bot-status');
 
@@ -184,11 +186,13 @@ function updateLoginUI(loggedIn) {
     sessionStatusText.innerText = 'Authenticated (YouTube Studio)';
     sessionStatusText.style.color = '#22c55e';
     btnLogin.style.display = 'none';
+    if (btnSwitchChannel) btnSwitchChannel.style.display = 'inline-flex';
     btnLogout.style.display = 'inline-flex';
   } else {
     sessionStatusText.innerText = 'Not Authenticated';
     sessionStatusText.style.color = '#ef4444';
     btnLogin.style.display = 'inline-flex';
+    if (btnSwitchChannel) btnSwitchChannel.style.display = 'none';
     btnLogout.style.display = 'none';
     
     // Disable scanner toggle if not logged in
@@ -229,10 +233,16 @@ function setupEventListeners() {
     }
   });
 
-  // Open YouTube login popup
+  // Open YouTube login popup / channel selector
   btnLogin.addEventListener('click', () => {
     ipcRenderer.send('open-login');
   });
+
+  if (btnSwitchChannel) {
+    btnSwitchChannel.addEventListener('click', () => {
+      ipcRenderer.send('open-login');
+    });
+  }
 
   // Logout
   btnLogout.addEventListener('click', async () => {
@@ -333,6 +343,7 @@ function setupEventListeners() {
     if (val && personaPresets[val]) {
       inputOllamaPrompt.value = personaPresets[val];
     }
+    saveOllamaSettings(true);
   });
 
   btnAddCommand.addEventListener('click', () => {
@@ -350,6 +361,7 @@ function setupEventListeners() {
     ytBotLoginGroup.style.display = isBot ? 'flex' : 'none';
     if (isBot) checkYouTubeBotLoginStatus();
     else ytBotStatus.innerText = 'Broadcaster';
+    saveOllamaSettings(true);
   });
 
   selectKickAccountMode.addEventListener('change', () => {
@@ -357,11 +369,18 @@ function setupEventListeners() {
     kickBotLoginGroup.style.display = isBot ? 'flex' : 'none';
     if (isBot) checkKickBotLoginStatus();
     else kickBotStatus.innerText = 'Broadcaster';
+    saveOllamaSettings(true);
   });
 
   btnYtBotLogin.addEventListener('click', () => {
     ipcRenderer.invoke('show-youtube-bot-login');
   });
+
+  if (btnYtBotSwitch) {
+    btnYtBotSwitch.addEventListener('click', () => {
+      ipcRenderer.invoke('show-youtube-bot-login');
+    });
+  }
 
   btnYtBotLogout.addEventListener('click', async () => {
     await ipcRenderer.invoke('logout-youtube-bot');
@@ -417,6 +436,9 @@ async function checkYouTubeBotLoginStatus() {
   const loggedIn = await ipcRenderer.invoke('check-youtube-bot-login');
   ytBotStatus.innerText = loggedIn ? 'Authenticated' : 'Not Authenticated';
   ytBotStatus.style.color = loggedIn ? '#22c55e' : '#ef4444';
+  if (btnYtBotSwitch) {
+    btnYtBotSwitch.style.display = loggedIn ? 'inline-flex' : 'none';
+  }
 }
 
 async function checkKickBotLoginStatus() {
@@ -448,6 +470,7 @@ async function loadOllamaSettings() {
     if (selectKickAccountMode.value === 'bot_account') checkKickBotLoginStatus();
     else kickBotStatus.innerText = 'Broadcaster';
 
+    if (settings.personaPreset) selectPersonaPreset.value = settings.personaPreset;
     inputOllamaPrompt.value = settings.systemPrompt || '';
     selectAutoRespond.value = settings.autoRespond || 'mention_only';
     inputOllamaCooldown.value = settings.cooldownSeconds !== undefined ? settings.cooldownSeconds : 10;
@@ -461,12 +484,6 @@ async function loadOllamaSettings() {
 
     renderCommandsList();
     renderTimersList();
-
-    fetchOllamaModels(inputOllamaUrl.value, settings.model);
-  } catch (err) {
-    console.error('Error loading Ollama settings:', err);
-  }
-}
 
     fetchOllamaModels(inputOllamaUrl.value, settings.model);
   } catch (err) {
@@ -594,7 +611,7 @@ function renderTimersList() {
   });
 }
 
-async function saveOllamaSettings() {
+async function saveOllamaSettings(silent = false) {
   const newSettings = {
     enabled: toggleOllamaEnabled.checked,
     ollamaUrl: inputOllamaUrl.value.trim(),
@@ -604,6 +621,7 @@ async function saveOllamaSettings() {
     enableKick: toggleBotKick.checked,
     youtubeAccountMode: selectYtAccountMode.value,
     kickAccountMode: selectKickAccountMode.value,
+    personaPreset: selectPersonaPreset.value,
     systemPrompt: inputOllamaPrompt.value.trim(),
     autoRespond: selectAutoRespond.value,
     cooldownSeconds: parseInt(inputOllamaCooldown.value, 10) || 10,
@@ -616,9 +634,9 @@ async function saveOllamaSettings() {
 
   const res = await ipcRenderer.invoke('save-ollama-settings', newSettings);
   if (res.success) {
-    showToast('Ollama Bot settings saved successfully!');
+    if (!silent) showToast('Ollama Bot settings saved successfully!');
   } else {
-    showToast('Error saving Ollama Bot settings');
+    if (!silent) showToast('Error saving Ollama Bot settings');
   }
 }
 
@@ -630,6 +648,14 @@ function setupIpcListeners() {
     if (!loggedIn) {
       toggleMonitor.checked = false;
     }
+  });
+
+  ipcRenderer.on('youtube-bot-login-changed', (event, { loggedIn }) => {
+    checkYouTubeBotLoginStatus();
+  });
+
+  ipcRenderer.on('kick-bot-login-changed', (event, { loggedIn }) => {
+    checkKickBotLoginStatus();
   });
 
   // Listen for Kick status pushes
@@ -676,6 +702,11 @@ function setupIpcListeners() {
     const platformLabel = chat.platform === 'kick' ? '[Kick] ' : '[YT] ';
     if (chat.type === 'chat') {
       logActivity(`${platformLabel}${chat.username}:${chat.message}`, 'chat');
+    } else if (chat.type === 'poll') {
+      const choicesStr = (chat.choices || []).map(c => `${c.text}: ${c.percentage}`).join(' | ');
+      logActivity(`📊 YouTube Poll: "${chat.question}" (${choicesStr})`, 'poll');
+    } else if (chat.type === 'poll_ended') {
+      logActivity(`📊 YouTube Poll ended`, 'poll');
     } else {
       logActivity(`${platformLabel}Alert: ${chat.username} - ${chat.message || chat.amount}`, 'alert');
     }
@@ -710,6 +741,9 @@ function logActivity(text, type = 'info') {
     const msg = parts.slice(1).join(':');
     row.innerHTML = `${timeSpan} <span class="preview-user">${user}:</span><span class="preview-text">${msg}</span>`;
   } 
+  else if (type === 'poll') {
+    row.innerHTML = `${timeSpan} <span style="color: #38bdf8; font-weight: bold;">${text}</span>`;
+  }
   else if (type === 'alert') {
     row.innerHTML = `${timeSpan} <span class="preview-alert">⭐ ${text}</span>`;
   }

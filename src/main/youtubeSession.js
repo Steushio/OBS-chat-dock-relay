@@ -20,11 +20,11 @@ class YouTubeSession {
     }
 
     this.loginWindow = new BrowserWindow({
-      width: 900,
-      height: 700,
+      width: 950,
+      height: 720,
       parent: parentWindow || null,
       modal: true,
-      title: 'Sign In to YouTube Studio',
+      title: 'Sign In / Select YouTube Channel',
       icon: path.join(__dirname, '..', 'assets', 'icon.png'),
       webPreferences: {
         partition: this.sessionPartition,
@@ -37,22 +37,28 @@ class YouTubeSession {
     // Strip custom menus in login window
     this.loginWindow.setMenu(null);
 
-    // Load Youtube Studio which prompts the Google sign-in
-    this.loginWindow.loadURL('https://studio.youtube.com/');
+    // Direct user to YouTube channel switcher so they can select their desired channel/Brand account under their Gmail
+    this.loginWindow.loadURL('https://www.youtube.com/channel_switcher?next=https%3A%2F%2Fstudio.youtube.com%2F');
 
-    websocketServer.logSystem('YouTube login window opened');
+    websocketServer.logSystem('YouTube channel selection / login window opened');
 
     const checkNavigation = (url) => {
-      if (url.includes('studio.youtube.com') && !url.includes('accounts.google.com')) {
-        websocketServer.logSystem('YouTube login detected successfully!');
-        if (parentWindow) {
-          parentWindow.webContents.send('login-status-changed', { loggedIn: true });
-        }
-        setTimeout(() => {
-          if (this.loginWindow && !this.loginWindow.isDestroyed()) {
-            this.loginWindow.close();
+      try {
+        const parsed = new URL(url);
+        // Only trigger completion when user has selected a channel and reached studio.youtube.com (not channel_switcher or accounts.google.com)
+        if (parsed.hostname === 'studio.youtube.com' && !parsed.pathname.includes('channel_switcher')) {
+          websocketServer.logSystem('YouTube channel selected & login verified!');
+          if (parentWindow) {
+            parentWindow.webContents.send('login-status-changed', { loggedIn: true });
           }
-        }, 3000); // Give user a moment to see successful redirect
+          setTimeout(() => {
+            if (this.loginWindow && !this.loginWindow.isDestroyed()) {
+              this.loginWindow.close();
+            }
+          }, 2500);
+        }
+      } catch (e) {
+        // ignore invalid url
       }
     };
 
@@ -96,15 +102,18 @@ class YouTubeSession {
       }, 15000); // 15s timeout fallback
 
       const checkUrl = (url) => {
-        if (url.includes('accounts.google.com')) {
-          clearTimeout(timer);
-          probeWindow.destroy();
-          resolve(false);
-        } else if (url.includes('studio.youtube.com')) {
-          clearTimeout(timer);
-          probeWindow.destroy();
-          resolve(true);
-        }
+        try {
+          const parsed = new URL(url);
+          if (parsed.hostname === 'accounts.google.com') {
+            clearTimeout(timer);
+            probeWindow.destroy();
+            resolve(false);
+          } else if (parsed.hostname === 'studio.youtube.com') {
+            clearTimeout(timer);
+            probeWindow.destroy();
+            resolve(true);
+          }
+        } catch (e) {}
       };
 
       probeWindow.webContents.on('did-navigate', (event, url) => {

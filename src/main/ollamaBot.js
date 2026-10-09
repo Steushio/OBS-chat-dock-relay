@@ -1,4 +1,4 @@
-const { ipcMain, net } = require('electron');
+const { ipcMain } = require('electron');
 const configStore = require('./configStore');
 const websocketServer = require('./websocketServer');
 const chatCapture = require('./chatCapture');
@@ -9,8 +9,8 @@ class OllamaBot {
   constructor() {
     this.defaults = {
       enabled: false,
-      ollamaUrl: 'http://localhost:11434',
-      model: 'llama3',
+      ollamaUrl: 'http://127.0.0.1:11434',
+      model: 'qwen2.5:3b',
       botName: 'AI Bot',
       systemPrompt: 'You are a hype, energetic, and casual live stream chat bot for a live gaming stream.\nRules:\n- Respond naturally like a streamer or chat moderator using casual stream slang, hype, or emojis.\n- NEVER sound like customer support, an assistant, or say "How can I help you today?".\n- Keep responses short, direct, and under 15 words.',
       autoRespond: 'mention_only', // 'off' | 'mention_only' | 'all_chat'
@@ -88,12 +88,12 @@ class OllamaBot {
     return clean.replace('://localhost', '://127.0.0.1');
   }
 
-  // Fetch installed models from Ollama /api/tags
+  // Fetch installed models from Ollama /api/tags using native Node fetch
   async fetchModels(ollamaUrl) {
     const baseUrl = this.normalizeUrl(ollamaUrl);
     const targetUrl = `${baseUrl}/api/tags`;
     try {
-      const response = await net.fetch(targetUrl, { timeout: 5000 });
+      const response = await fetch(targetUrl);
       if (response.ok) {
         const json = await response.json();
         const models = (json.models || []).map(m => m.name);
@@ -105,10 +105,10 @@ class OllamaBot {
     }
   }
 
-  // Generate AI Response using Ollama /api/generate
+  // Generate AI Response using Ollama /api/generate via native Node fetch
   async generateAiResponse(userPrompt, username, platform, overrideConfig = null) {
     const baseUrl = this.normalizeUrl(overrideConfig?.url || this.settings.ollamaUrl);
-    const model = overrideConfig?.model || this.settings.model || 'llama3';
+    let model = overrideConfig?.model || this.settings.model || 'qwen2.5:3b';
     const systemPrompt = overrideConfig?.systemPrompt || this.settings.systemPrompt;
 
     const fullPrompt = `System Instructions: ${systemPrompt}
@@ -122,7 +122,7 @@ Instruction: Write a short 1-line live stream chat reply to @${username}. Do NOT
 Chat Reply:`;
 
     try {
-      const response = await net.fetch(`${baseUrl}/api/generate`, {
+      const response = await fetch(`${baseUrl}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

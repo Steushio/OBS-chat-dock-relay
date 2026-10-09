@@ -27,6 +27,14 @@ class ChatCapture {
         websocketServer.broadcast('chat', chatData);
         // Forward to Ollama Bot
         ollamaBot.handleChatMessage(chatData);
+      } else if (chatData.type === 'poll' || chatData.type === 'poll_ended') {
+        websocketServer.broadcast('poll', chatData);
+        websocketServer.broadcast('chat', chatData);
+        if (chatData.type === 'poll') {
+          websocketServer.logSystem(`📊 Live YouTube Poll captured: "${chatData.question}" (${chatData.totalVotes || 'active'})`);
+        } else {
+          websocketServer.logSystem(`📊 Live YouTube Poll ended`);
+        }
       } else {
         // SuperChats, Stickers, Memberships, Gifts are all Alerts
         websocketServer.broadcast('alert', chatData);

@@ -44,9 +44,10 @@
             <span class="session-label">Session Status</span>
             <span id="session-status-text" class="session-value" style="color: #ef4444;">Not Authenticated</span>
           </div>
-          <div>
+          <div style="display: flex; gap: 6px;">
             <button id="btn-login" class="btn-primary">Connect Account</button>
-            <button id="btn-logout" class="btn-secondary" style="display: none;">Disconnect</button>
+            <button id="btn-switch-channel" class="btn-secondary" style="display: none; font-size: 13px; padding: 8px 14px;">🔄 Switch Channel</button>
+            <button id="btn-logout" class="btn-secondary" style="display: none; color: #ef4444;">Disconnect</button>
           </div>
         </div>
       </div>
@@ -196,9 +197,10 @@
               <option value="broadcaster">Broadcaster Account (You)</option>
               <option value="bot_account">Dedicated YouTube Bot Account</option>
             </select>
-            <div id="yt-bot-login-group" style="display: none; gap: 6px;">
-              <button id="btn-yt-bot-login" class="btn-secondary" style="font-size: 11px; padding: 4px 8px; flex: 1;">🔑 Login YT Bot</button>
-              <button id="btn-yt-bot-logout" class="btn-secondary" style="font-size: 11px; padding: 4px 8px; color: #ef4444;">🚪 Logout</button>
+            <div id="yt-bot-login-group" style="display: none; gap: 4px;">
+              <button id="btn-yt-bot-login" class="btn-secondary" style="font-size: 11px; padding: 4px 6px; flex: 1;">🔑 Login YT Bot</button>
+              <button id="btn-yt-bot-switch" class="btn-secondary" style="font-size: 11px; padding: 4px 6px; display: none;">🔄 Switch</button>
+              <button id="btn-yt-bot-logout" class="btn-secondary" style="font-size: 11px; padding: 4px 6px; color: #ef4444;">🚪 Logout</button>
             </div>
           </div>
 

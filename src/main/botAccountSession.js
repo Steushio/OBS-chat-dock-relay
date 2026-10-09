@@ -68,11 +68,11 @@ class BotAccountSession {
     }
 
     this.ytLoginWindow = new BrowserWindow({
-      width: 900,
-      height: 700,
+      width: 950,
+      height: 720,
       parent: parentWindow || null,
       modal: true,
-      title: 'Sign In to YouTube Bot Account',
+      title: 'Sign In / Select YouTube Bot Channel',
       icon: path.join(__dirname, '..', 'assets', 'icon.png'),
       webPreferences: {
         partition: this.ytPartition,
@@ -83,22 +83,25 @@ class BotAccountSession {
     });
 
     this.ytLoginWindow.setMenu(null);
-    this.ytLoginWindow.loadURL('https://studio.youtube.com/');
+    this.ytLoginWindow.loadURL('https://www.youtube.com/channel_switcher?next=https%3A%2F%2Fstudio.youtube.com%2F');
 
-    websocketServer.logSystem('[YouTube Bot] Login window opened');
+    websocketServer.logSystem('[YouTube Bot] Channel selection / login window opened');
 
     const checkNav = (url) => {
-      if (url.includes('studio.youtube.com') && !url.includes('accounts.google.com')) {
-        websocketServer.logSystem('[YouTube Bot] Dedicated Bot account authenticated!');
-        if (parentWindow) {
-          parentWindow.webContents.send('youtube-bot-login-changed', { loggedIn: true });
-        }
-        setTimeout(() => {
-          if (this.ytLoginWindow && !this.ytLoginWindow.isDestroyed()) {
-            this.ytLoginWindow.close();
+      try {
+        const parsed = new URL(url);
+        if (parsed.hostname === 'studio.youtube.com' && !parsed.pathname.includes('channel_switcher')) {
+          websocketServer.logSystem('[YouTube Bot] Dedicated Bot channel authenticated!');
+          if (parentWindow) {
+            parentWindow.webContents.send('youtube-bot-login-changed', { loggedIn: true });
           }
-        }, 2000);
-      }
+          setTimeout(() => {
+            if (this.ytLoginWindow && !this.ytLoginWindow.isDestroyed()) {
+              this.ytLoginWindow.close();
+            }
+          }, 2000);
+        }
+      } catch (e) {}
     };
 
     this.ytLoginWindow.webContents.on('did-navigate', (e, url) => checkNav(url));
@@ -131,15 +134,18 @@ class BotAccountSession {
       }, 12000);
 
       const checkUrl = (url) => {
-        if (url.includes('accounts.google.com')) {
-          clearTimeout(timer);
-          probe.destroy();
-          resolve(false);
-        } else if (url.includes('studio.youtube.com')) {
-          clearTimeout(timer);
-          probe.destroy();
-          resolve(true);
-        }
+        try {
+          const parsed = new URL(url);
+          if (parsed.hostname === 'accounts.google.com') {
+            clearTimeout(timer);
+            probe.destroy();
+            resolve(false);
+          } else if (parsed.hostname === 'studio.youtube.com') {
+            clearTimeout(timer);
+            probe.destroy();
+            resolve(true);
+          }
+        } catch (e) {}
       };
 
       probe.webContents.on('did-navigate', (e, url) => checkUrl(url));
@@ -218,8 +224,8 @@ class BotAccountSession {
     }
 
     this.kickLoginWindow = new BrowserWindow({
-      width: 900,
-      height: 700,
+      width: 950,
+      height: 720,
       parent: parentWindow || null,
       modal: true,
       title: 'Sign In to Kick Bot Account',
@@ -237,6 +243,26 @@ class BotAccountSession {
 
     websocketServer.logSystem('[Kick Bot] Login window opened');
 
+    const checkKickNav = async (url) => {
+      if (url.includes('kick.com') && !url.includes('kick.com/login')) {
+        const loggedIn = await this.checkKickBotLogin();
+        if (loggedIn) {
+          websocketServer.logSystem('[Kick Bot] Dedicated Bot account authenticated!');
+          if (parentWindow) {
+            parentWindow.webContents.send('kick-bot-login-changed', { loggedIn: true });
+          }
+          setTimeout(() => {
+            if (this.kickLoginWindow && !this.kickLoginWindow.isDestroyed()) {
+              this.kickLoginWindow.close();
+            }
+          }, 2000);
+        }
+      }
+    };
+
+    this.kickLoginWindow.webContents.on('did-navigate', (e, url) => checkKickNav(url));
+    this.kickLoginWindow.webContents.on('did-redirect-navigation', (e, url) => checkKickNav(url));
+
     this.kickLoginWindow.on('closed', () => {
       this.kickLoginWindow = null;
       if (parentWindow) {
@@ -248,6 +274,27 @@ class BotAccountSession {
   }
 
   async checkKickBotLogin() {
+    try {
+      const s = session.fromPartition(this.kickPartition);
+      const cookies = await s.cookies.get({});
+      
+      const hasKickAuthCookie = cookies.some(c => 
+        c.domain.includes('kick.com') && (
+          c.name.includes('session') || 
+          c.name.includes('token') || 
+          c.name.includes('auth') ||
+          c.name.includes('kick') ||
+          c.name === 'cf_clearance'
+        )
+      );
+
+      if (hasKickAuthCookie) {
+        return true;
+      }
+    } catch (e) {
+      console.error('[Kick Bot] Error checking partition cookies:', e);
+    }
+
     return new Promise((resolve) => {
       const probe = new BrowserWindow({
         width: 400,
@@ -272,7 +319,11 @@ class BotAccountSession {
         try {
           const loggedIn = await probe.webContents.executeJavaScript(`
             (function() {
-              return !!(document.querySelector('button[aria-label="User profile"]') || document.cookie.includes('kick_session'));
+              const avatar = document.querySelector('button[aria-label="User profile"], #user-menu-button, [data-testid="user-profile-button"], img[alt*="avatar"], img[src*="user"]');
+              const loginBtn = document.querySelector('button[href="/login"], a[href="/login"]');
+              if (avatar) return true;
+              if (loginBtn) return false;
+              return false;
             })()
           `);
           clearTimeout(timer);

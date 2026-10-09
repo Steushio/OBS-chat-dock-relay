@@ -110,6 +110,9 @@ function setupDashboardRelays() {
     if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
       if (event === 'chat') {
         mainWindow.webContents.send('preview-chat', data);
+      } else if (event === 'poll') {
+        mainWindow.webContents.send('preview-poll', data);
+        mainWindow.webContents.send('preview-chat', data);
       } else if (event === 'clear_state') {
         mainWindow.webContents.send('clear-activity');
       }
