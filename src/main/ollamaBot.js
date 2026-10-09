@@ -79,9 +79,18 @@ class OllamaBot {
     });
   }
 
+  normalizeUrl(url) {
+    if (!url) return 'http://127.0.0.1:11434';
+    let clean = url.trim().replace(/\/$/, '');
+    if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
+      clean = 'http://' + clean;
+    }
+    return clean.replace('://localhost', '://127.0.0.1');
+  }
+
   // Fetch installed models from Ollama /api/tags
   async fetchModels(ollamaUrl) {
-    const baseUrl = (ollamaUrl || 'http://localhost:11434').replace(/\/$/, '');
+    const baseUrl = this.normalizeUrl(ollamaUrl);
     const targetUrl = `${baseUrl}/api/tags`;
     try {
       const response = await net.fetch(targetUrl, { timeout: 5000 });
@@ -98,7 +107,7 @@ class OllamaBot {
 
   // Generate AI Response using Ollama /api/generate
   async generateAiResponse(userPrompt, username, platform, overrideConfig = null) {
-    const baseUrl = (overrideConfig?.url || this.settings.ollamaUrl || 'http://localhost:11434').replace(/\/$/, '');
+    const baseUrl = this.normalizeUrl(overrideConfig?.url || this.settings.ollamaUrl);
     const model = overrideConfig?.model || this.settings.model || 'llama3';
     const systemPrompt = overrideConfig?.systemPrompt || this.settings.systemPrompt;
 
