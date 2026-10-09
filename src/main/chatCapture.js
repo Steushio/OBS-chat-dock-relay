@@ -3,6 +3,8 @@ const path = require('path');
 const websocketServer = require('./websocketServer');
 const youtubeSession = require('./youtubeSession');
 
+const ollamaBot = require('./ollamaBot');
+
 class ChatCapture {
   constructor() {
     this.chatWindow = null;
@@ -23,6 +25,8 @@ class ChatCapture {
       if (chatData.type === 'chat') {
         // Send normal chat message to ws clients
         websocketServer.broadcast('chat', chatData);
+        // Forward to Ollama Bot
+        ollamaBot.handleChatMessage(chatData);
       } else {
         // SuperChats, Stickers, Memberships, Gifts are all Alerts
         websocketServer.broadcast('alert', chatData);
@@ -114,6 +118,45 @@ class ChatCapture {
     if (videoId === this.currentVideoId) return;
     websocketServer.logSystem(`Switching chat capture stream: ${this.currentVideoId || 'none'} -> ${videoId}`);
     this.startCapture(videoId);
+  }
+
+  async sendMessage(messageText) {
+    if (!this.chatWindow || this.chatWindow.isDestroyed()) {
+      websocketServer.logSystem('[YouTube Bot] Cannot send chat message: Chat window not active.', 'warning');
+      return false;
+    }
+
+    try {
+      const success = await this.chatWindow.webContents.executeJavaScript(`
+        (async function(text) {
+          try {
+            const inputEl = document.querySelector('#input[contenteditable="true"], yt-live-chat-message-input-renderer #input');
+            if (!inputEl) return false;
+            
+            inputEl.focus();
+            inputEl.innerText = text;
+            inputEl.dispatchEvent(new InputEvent('input', { bubbles: true }));
+
+            await new Promise(r => setTimeout(r, 200));
+
+            const sendBtn = document.querySelector('#send-button button, yt-live-chat-message-input-renderer #send-button button');
+            if (sendBtn && !sendBtn.disabled) {
+              sendBtn.click();
+              return true;
+            }
+
+            inputEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+            return true;
+          } catch (e) {
+            return false;
+          }
+        })(${JSON.stringify(messageText)})
+      `);
+      return success;
+    } catch (err) {
+      websocketServer.logSystem(`[YouTube Bot] Error sending message: ${err.message}`, 'error');
+      return false;
+    }
   }
 }
 

@@ -131,6 +131,149 @@
         </div>
       </div>
 
+      <!-- Ollama AI Live Chat Bot Card -->
+      <div class="card">
+        <div class="card-title" style="display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 22px;">🤖</span>
+            <h2 class="title-font" style="margin: 0;">Ollama AI Live Chat Bot</h2>
+          </div>
+          <span id="ollama-status-badge" class="badge" style="background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 3px 8px; border-radius: 12px; font-weight: bold; font-size: 11px;">Offline</span>
+        </div>
+        <p style="font-size: 13px; color: var(--text-muted); margin-top: -4px;">
+          AI chat responses, first-words welcoming, custom commands & scheduled timers.
+        </p>
+
+        <div class="switch-wrapper" style="background: rgba(255, 255, 255, 0.03); padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.06);">
+          <div class="switch-label">
+            <span style="font-weight: bold; color: #fff;">Enable AI Bot Integration</span>
+            <small>Process live chats, commands, first-words & timers</small>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-ollama-enabled">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <!-- Connection Settings -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px;">
+          <div class="form-group" style="grid-column: span 2;">
+            <label for="input-ollama-url">Ollama Server URL</label>
+            <div style="display: flex; gap: 8px;">
+              <input type="text" id="input-ollama-url" value="http://localhost:11434" placeholder="http://localhost:11434">
+              <button id="btn-fetch-ollama-models" class="btn-secondary" style="white-space: nowrap; font-size: 12px;">🔄 Fetch Models</button>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="select-ollama-model">Ollama Model</label>
+            <select id="select-ollama-model" class="input-select" style="width: 100%; padding: 8px; border-radius: 6px; background: #18181b; color: #fff; border: 1px solid #3f3f46;">
+              <option value="llama3">llama3</option>
+              <option value="mistral">mistral</option>
+              <option value="gemma">gemma</option>
+              <option value="qwen2.5">qwen2.5</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="input-ollama-botname">Bot Name in Chat</label>
+            <input type="text" id="input-ollama-botname" value="AI Bot" placeholder="e.g. AI Assistant">
+          </div>
+        </div>
+
+        <!-- Platform Toggles -->
+        <div style="display: flex; gap: 16px; margin-top: 8px; background: rgba(0, 0, 0, 0.2); padding: 8px 12px; border-radius: 6px;">
+          <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer;">
+            <input type="checkbox" id="toggle-bot-youtube" checked>
+            <span>🔴 Respond on YouTube</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer;">
+            <input type="checkbox" id="toggle-bot-kick" checked>
+            <span>🟢 Respond on Kick</span>
+          </label>
+        </div>
+
+        <!-- System Prompt & Persona -->
+        <div class="form-group" style="margin-top: 10px;">
+          <label for="input-ollama-prompt">System Persona & AI Instructions</label>
+          <textarea id="input-ollama-prompt" rows="2" style="width: 100%; font-size: 12px; padding: 8px; border-radius: 6px; background: #18181b; color: #fff; border: 1px solid #3f3f46; font-family: inherit;" placeholder="You are a helpful live stream AI assistant. Keep responses under 20 words."></textarea>
+        </div>
+
+        <!-- Auto-Respond & Cooldown -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px;">
+          <div class="form-group">
+            <label for="select-auto-respond">AI Response Trigger</label>
+            <select id="select-auto-respond" class="input-select" style="width: 100%; padding: 8px; border-radius: 6px; background: #18181b; color: #fff; border: 1px solid #3f3f46;">
+              <option value="off">Off (Commands Only)</option>
+              <option value="mention_only" selected>Mention (@Bot or !ai)</option>
+              <option value="all_chat">All Chat Messages</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="input-ollama-cooldown">Cooldown (Sec)</label>
+            <input type="number" id="input-ollama-cooldown" value="10" min="2" max="300">
+          </div>
+        </div>
+
+        <!-- First Words Welcomer Settings -->
+        <div style="margin-top: 12px; background: rgba(255, 255, 255, 0.02); padding: 10px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
+          <div class="switch-wrapper" style="margin: 0 0 8px 0;">
+            <div class="switch-label">
+              <span style="font-weight: bold; color: #fff; font-size: 13px;">First Words Welcomer</span>
+              <small>Greet new chatters on their 1st message in stream</small>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggle-first-words">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 8px;">
+            <div class="form-group">
+              <label for="select-first-words-mode">Welcome Mode</label>
+              <select id="select-first-words-mode" class="input-select" style="width: 100%; padding: 6px; border-radius: 6px; background: #18181b; color: #fff; border: 1px solid #3f3f46; font-size: 12px;">
+                <option value="template">Message Template</option>
+                <option value="ai">AI Greeting</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="input-first-words-template">Template ({username})</label>
+              <input type="text" id="input-first-words-template" value="Welcome to the stream {username}! Thanks for chatting!" style="font-size: 12px;">
+            </div>
+          </div>
+        </div>
+
+        <!-- Custom Commands Table -->
+        <div style="margin-top: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label style="font-weight: bold; color: #fff; font-size: 13px;">Custom Chat Commands (!cmd)</label>
+            <button id="btn-add-command" class="btn-secondary" style="font-size: 11px; padding: 3px 8px;">+ Add Command</button>
+          </div>
+          <div id="commands-list" style="display: flex; flex-direction: column; gap: 6px; max-height: 120px; overflow-y: auto;">
+            <!-- Rendered command rows -->
+          </div>
+        </div>
+
+        <!-- Timed Scheduled Messages -->
+        <div style="margin-top: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label style="font-weight: bold; color: #fff; font-size: 13px;">Scheduled Timers (Recurring)</label>
+            <button id="btn-add-timer" class="btn-secondary" style="font-size: 11px; padding: 3px 8px;">+ Add Timer</button>
+          </div>
+          <div id="timers-list" style="display: flex; flex-direction: column; gap: 6px; max-height: 120px; overflow-y: auto;">
+            <!-- Rendered timer rows -->
+          </div>
+        </div>
+
+        <!-- Test & Save Buttons -->
+        <div style="margin-top: 14px; display: flex; justify-content: space-between; align-items: center; pt-3; border-top: 1px solid rgba(255, 255, 255, 0.08); gap: 10px;">
+          <div style="display: flex; gap: 6px; align-items: center; flex: 1;">
+            <input type="text" id="input-test-prompt" placeholder="Test AI prompt..." style="font-size: 12px; padding: 6px;">
+            <button id="btn-test-prompt" class="btn-secondary" style="white-space: nowrap; font-size: 11px; padding: 6px 10px;">⚡ Test AI</button>
+          </div>
+          <button id="btn-save-ollama" class="btn-primary" style="padding: 6px 16px; font-weight: bold; font-size: 13px;">💾 Save Bot</button>
+        </div>
+      </div>
+
       <!-- Real-Time Activity Monitor Card -->
       <div class="card">
         <div class="card-title">

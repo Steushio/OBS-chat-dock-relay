@@ -55,6 +55,36 @@ const btnTestAlertSound = document.getElementById('btn-test-alert-sound');
 
 const toastMessage = document.getElementById('toast-message');
 
+// Ollama Bot UI Elements
+const ollamaStatusBadge = document.getElementById('ollama-status-badge');
+const toggleOllamaEnabled = document.getElementById('toggle-ollama-enabled');
+const inputOllamaUrl = document.getElementById('input-ollama-url');
+const btnFetchOllamaModels = document.getElementById('btn-fetch-ollama-models');
+const selectOllamaModel = document.getElementById('select-ollama-model');
+const inputOllamaBotname = document.getElementById('input-ollama-botname');
+const toggleBotYoutube = document.getElementById('toggle-bot-youtube');
+const toggleBotKick = document.getElementById('toggle-bot-kick');
+const inputOllamaPrompt = document.getElementById('input-ollama-prompt');
+const selectAutoRespond = document.getElementById('select-auto-respond');
+const inputOllamaCooldown = document.getElementById('input-ollama-cooldown');
+
+const toggleFirstWords = document.getElementById('toggle-first-words');
+const selectFirstWordsMode = document.getElementById('select-first-words-mode');
+const inputFirstWordsTemplate = document.getElementById('input-first-words-template');
+
+const btnAddCommand = document.getElementById('btn-add-command');
+const commandsList = document.getElementById('commands-list');
+
+const btnAddTimer = document.getElementById('btn-add-timer');
+const timersList = document.getElementById('timers-list');
+
+const inputTestPrompt = document.getElementById('input-test-prompt');
+const btnTestPrompt = document.getElementById('btn-test-prompt');
+const btnSaveOllama = document.getElementById('btn-save-ollama');
+
+let ollamaCommands = [];
+let ollamaTimers = [];
+
 // State Variables
 let currentHttpPort = 3000;
 
@@ -62,6 +92,7 @@ let currentHttpPort = 3000;
 async function init() {
   setupEventListeners();
   await loadSettings();
+  await loadOllamaSettings();
   await checkYouTubeLogin();
   setupIpcListeners();
 }
@@ -271,6 +302,230 @@ function setupEventListeners() {
   btnTestAlertSound.addEventListener('click', () => {
     playDashboardSound(selectAlertSoundType.value, inputAlertSoundFile.value, parseInt(sliderAlertVolume.value), 'alert');
   });
+
+  // Ollama Bot Event Listeners
+  btnFetchOllamaModels.addEventListener('click', () => {
+    fetchOllamaModels(inputOllamaUrl.value, selectOllamaModel.value);
+  });
+
+  btnAddCommand.addEventListener('click', () => {
+    ollamaCommands.push({ trigger: '!cmd', response: 'Sample response' });
+    renderCommandsList();
+  });
+
+  btnAddTimer.addEventListener('click', () => {
+    ollamaTimers.push({ enabled: true, intervalMinutes: 10, message: 'Scheduled message text...' });
+    renderTimersList();
+  });
+
+  btnSaveOllama.addEventListener('click', () => {
+    saveOllamaSettings();
+  });
+
+  btnTestPrompt.addEventListener('click', async () => {
+    const prompt = inputTestPrompt.value.trim() || 'Hello AI Bot!';
+    btnTestPrompt.innerText = '⏳ Testing...';
+    btnTestPrompt.disabled = true;
+
+    try {
+      const res = await ipcRenderer.invoke('test-ollama-prompt', {
+        prompt,
+        url: inputOllamaUrl.value.trim(),
+        model: selectOllamaModel.value,
+        systemPrompt: inputOllamaPrompt.value.trim()
+      });
+
+      if (res.success && res.text) {
+        showToast(`AI Response: "${res.text}"`);
+        logActivity(`[Ollama Test] Prompt: "${prompt}" -> Response: "${res.text}"`);
+      } else {
+        showToast(`AI Error: ${res.error || 'Failed'}`);
+        logActivity(`[Ollama Test Error] ${res.error || 'Failed'}`, 'error');
+      }
+    } catch (err) {
+      showToast(`Error: ${err.message}`);
+    } finally {
+      btnTestPrompt.innerText = '⚡ Test AI';
+      btnTestPrompt.disabled = false;
+    }
+  });
+}
+
+// Ollama Settings Loader & Renderer
+async function loadOllamaSettings() {
+  try {
+    const settings = await ipcRenderer.invoke('get-ollama-settings');
+    if (!settings) return;
+
+    toggleOllamaEnabled.checked = !!settings.enabled;
+    inputOllamaUrl.value = settings.ollamaUrl || 'http://localhost:11434';
+    inputOllamaBotname.value = settings.botName || 'AI Bot';
+    toggleBotYoutube.checked = settings.enableYouTube !== false;
+    toggleBotKick.checked = settings.enableKick !== false;
+    inputOllamaPrompt.value = settings.systemPrompt || '';
+    selectAutoRespond.value = settings.autoRespond || 'mention_only';
+    inputOllamaCooldown.value = settings.cooldownSeconds !== undefined ? settings.cooldownSeconds : 10;
+
+    toggleFirstWords.checked = !!settings.firstWordsEnabled;
+    selectFirstWordsMode.value = settings.firstWordsMode || 'template';
+    inputFirstWordsTemplate.value = settings.firstWordsTemplate || 'Welcome to the stream {username}!';
+
+    ollamaCommands = Array.isArray(settings.commands) ? JSON.parse(JSON.stringify(settings.commands)) : [];
+    ollamaTimers = Array.isArray(settings.timers) ? JSON.parse(JSON.stringify(settings.timers)) : [];
+
+    renderCommandsList();
+    renderTimersList();
+
+    fetchOllamaModels(inputOllamaUrl.value, settings.model);
+  } catch (err) {
+    console.error('Error loading Ollama settings:', err);
+  }
+}
+
+async function fetchOllamaModels(url, currentModel) {
+  btnFetchOllamaModels.innerText = '⏳ Fetching...';
+  try {
+    const res = await ipcRenderer.invoke('fetch-ollama-models', url);
+    if (res.success && Array.isArray(res.models) && res.models.length > 0) {
+      selectOllamaModel.innerHTML = '';
+      res.models.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.innerText = m;
+        if (m === currentModel) opt.selected = true;
+        selectOllamaModel.appendChild(opt);
+      });
+      ollamaStatusBadge.innerText = 'Online';
+      ollamaStatusBadge.style.background = 'rgba(34, 197, 94, 0.2)';
+      ollamaStatusBadge.style.color = '#22c55e';
+      ollamaStatusBadge.style.borderColor = 'rgba(34, 197, 94, 0.3)';
+    } else {
+      ollamaStatusBadge.innerText = 'Offline / Error';
+      ollamaStatusBadge.style.background = 'rgba(239, 68, 68, 0.2)';
+      ollamaStatusBadge.style.color = '#ef4444';
+      ollamaStatusBadge.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+    }
+  } catch (err) {
+    ollamaStatusBadge.innerText = 'Offline';
+  } finally {
+    btnFetchOllamaModels.innerText = '🔄 Fetch Models';
+  }
+}
+
+function renderCommandsList() {
+  commandsList.innerHTML = '';
+  if (ollamaCommands.length === 0) {
+    commandsList.innerHTML = '<div style="font-size: 11px; color: var(--text-muted); font-style: italic; padding: 4px;">No custom commands set. Click "+ Add Command" to create one.</div>';
+    return;
+  }
+
+  ollamaCommands.forEach((cmd, idx) => {
+    const row = document.createElement('div');
+    row.style.display = 'flex';
+    row.style.gap = '6px';
+    row.style.alignItems = 'center';
+    row.innerHTML = `
+      <input type="text" value="${cmd.trigger || ''}" placeholder="!command" style="width: 100px; font-size: 11px; padding: 4px;" data-idx="${idx}" class="cmd-trigger">
+      <input type="text" value="${cmd.response || ''}" placeholder="Response text..." style="flex: 1; font-size: 11px; padding: 4px;" data-idx="${idx}" class="cmd-response">
+      <button class="btn-secondary btn-del-cmd" data-idx="${idx}" style="color: #ef4444; padding: 2px 6px; font-size: 11px;">✕</button>
+    `;
+    commandsList.appendChild(row);
+  });
+
+  commandsList.querySelectorAll('.cmd-trigger').forEach(input => {
+    input.addEventListener('change', (e) => {
+      const idx = e.target.getAttribute('data-idx');
+      ollamaCommands[idx].trigger = e.target.value;
+    });
+  });
+  commandsList.querySelectorAll('.cmd-response').forEach(input => {
+    input.addEventListener('change', (e) => {
+      const idx = e.target.getAttribute('data-idx');
+      ollamaCommands[idx].response = e.target.value;
+    });
+  });
+  commandsList.querySelectorAll('.btn-del-cmd').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const idx = e.target.getAttribute('data-idx');
+      ollamaCommands.splice(idx, 1);
+      renderCommandsList();
+    });
+  });
+}
+
+function renderTimersList() {
+  timersList.innerHTML = '';
+  if (ollamaTimers.length === 0) {
+    timersList.innerHTML = '<div style="font-size: 11px; color: var(--text-muted); font-style: italic; padding: 4px;">No scheduled timers set. Click "+ Add Timer" to create one.</div>';
+    return;
+  }
+
+  ollamaTimers.forEach((timer, idx) => {
+    const row = document.createElement('div');
+    row.style.display = 'flex';
+    row.style.gap = '6px';
+    row.style.alignItems = 'center';
+    row.innerHTML = `
+      <input type="checkbox" ${timer.enabled ? 'checked' : ''} data-idx="${idx}" class="timer-enabled" title="Enable/Disable Timer">
+      <input type="number" value="${timer.intervalMinutes || 10}" min="1" max="1440" style="width: 55px; font-size: 11px; padding: 4px;" data-idx="${idx}" class="timer-interval">
+      <span style="font-size: 11px; color: var(--text-muted);">min</span>
+      <input type="text" value="${timer.message || ''}" placeholder="Scheduled message..." style="flex: 1; font-size: 11px; padding: 4px;" data-idx="${idx}" class="timer-message">
+      <button class="btn-secondary btn-del-timer" data-idx="${idx}" style="color: #ef4444; padding: 2px 6px; font-size: 11px;">✕</button>
+    `;
+    timersList.appendChild(row);
+  });
+
+  timersList.querySelectorAll('.timer-enabled').forEach(input => {
+    input.addEventListener('change', (e) => {
+      const idx = e.target.getAttribute('data-idx');
+      ollamaTimers[idx].enabled = e.target.checked;
+    });
+  });
+  timersList.querySelectorAll('.timer-interval').forEach(input => {
+    input.addEventListener('change', (e) => {
+      const idx = e.target.getAttribute('data-idx');
+      ollamaTimers[idx].intervalMinutes = parseInt(e.target.value, 10) || 10;
+    });
+  });
+  timersList.querySelectorAll('.timer-message').forEach(input => {
+    input.addEventListener('change', (e) => {
+      const idx = e.target.getAttribute('data-idx');
+      ollamaTimers[idx].message = e.target.value;
+    });
+  });
+  timersList.querySelectorAll('.btn-del-timer').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const idx = e.target.getAttribute('data-idx');
+      ollamaTimers.splice(idx, 1);
+      renderTimersList();
+    });
+  });
+}
+
+async function saveOllamaSettings() {
+  const newSettings = {
+    enabled: toggleOllamaEnabled.checked,
+    ollamaUrl: inputOllamaUrl.value.trim(),
+    model: selectOllamaModel.value,
+    botName: inputOllamaBotname.value.trim() || 'AI Bot',
+    enableYouTube: toggleBotYoutube.checked,
+    enableKick: toggleBotKick.checked,
+    systemPrompt: inputOllamaPrompt.value.trim(),
+    autoRespond: selectAutoRespond.value,
+    cooldownSeconds: parseInt(inputOllamaCooldown.value, 10) || 10,
+    firstWordsEnabled: toggleFirstWords.checked,
+    firstWordsMode: selectFirstWordsMode.value,
+    firstWordsTemplate: inputFirstWordsTemplate.value.trim(),
+    commands: ollamaCommands.filter(c => c.trigger && c.trigger.trim()),
+    timers: ollamaTimers.filter(t => t.message && t.message.trim())
+  };
+
+  const res = await ipcRenderer.invoke('save-ollama-settings', newSettings);
+  if (res.success) {
+    showToast('Ollama Bot settings saved successfully!');
+  } else {
+    showToast('Error saving Ollama Bot settings');
+  }
 }
 
 // 4. Set up IPC Push Event listeners

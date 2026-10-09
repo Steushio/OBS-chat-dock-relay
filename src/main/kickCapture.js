@@ -1,6 +1,7 @@
 const { BrowserWindow } = require('electron');
 const WebSocket = require('ws');
 const websocketServer = require('./websocketServer');
+const ollamaBot = require('./ollamaBot');
 
 class KickCapture {
   constructor() {
@@ -308,6 +309,7 @@ class KickCapture {
       };
 
       websocketServer.broadcast('chat', chatData);
+      ollamaBot.handleChatMessage(chatData);
     } 
     else if (event === 'App\\Events\\SubscriptionEvent') {
       const id = `kick_sub_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
@@ -390,6 +392,40 @@ class KickCapture {
     });
 
     websocketServer.updateKickState(kickState);
+  }
+
+  async sendMessage(messageText) {
+    if (!this.tempWindow || this.tempWindow.isDestroyed()) {
+      websocketServer.logSystem('[Kick Bot] Cannot send message: Kick page session not active.', 'warning');
+      return false;
+    }
+
+    try {
+      const success = await this.tempWindow.webContents.executeJavaScript(`
+        (async function(text, chatroomId) {
+          try {
+            if (chatroomId) {
+              const res = await fetch('https://kick.com/api/v2/messages/send/' + chatroomId, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Accept': 'application/json'
+                },
+                body: JSON.stringify({ content: text, type: 'message' })
+              });
+              if (res.ok) return true;
+            }
+            return false;
+          } catch (e) {
+            return false;
+          }
+        })(${JSON.stringify(messageText)}, ${JSON.stringify(this.chatroomId)})
+      `);
+      return success;
+    } catch (err) {
+      websocketServer.logSystem(`[Kick Bot] Error sending message: ${err.message}`, 'error');
+      return false;
+    }
   }
 }
 
