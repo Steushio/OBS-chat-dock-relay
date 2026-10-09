@@ -64,6 +64,18 @@ const selectOllamaModel = document.getElementById('select-ollama-model');
 const inputOllamaBotname = document.getElementById('input-ollama-botname');
 const toggleBotYoutube = document.getElementById('toggle-bot-youtube');
 const toggleBotKick = document.getElementById('toggle-bot-kick');
+
+const selectYtAccountMode = document.getElementById('select-yt-account-mode');
+const ytBotLoginGroup = document.getElementById('yt-bot-login-group');
+const btnYtBotLogin = document.getElementById('btn-yt-bot-login');
+const btnYtBotLogout = document.getElementById('btn-yt-bot-logout');
+const ytBotStatus = document.getElementById('yt-bot-status');
+
+const selectKickAccountMode = document.getElementById('select-kick-account-mode');
+const kickBotLoginGroup = document.getElementById('kick-bot-login-group');
+const btnKickBotLogin = document.getElementById('btn-kick-bot-login');
+const btnKickBotLogout = document.getElementById('btn-kick-bot-logout');
+const kickBotStatus = document.getElementById('kick-bot-status');
 const inputOllamaPrompt = document.getElementById('input-ollama-prompt');
 const selectAutoRespond = document.getElementById('select-auto-respond');
 const inputOllamaCooldown = document.getElementById('input-ollama-cooldown');
@@ -318,6 +330,40 @@ function setupEventListeners() {
     renderTimersList();
   });
 
+  selectYtAccountMode.addEventListener('change', () => {
+    const isBot = selectYtAccountMode.value === 'bot_account';
+    ytBotLoginGroup.style.display = isBot ? 'flex' : 'none';
+    if (isBot) checkYouTubeBotLoginStatus();
+    else ytBotStatus.innerText = 'Broadcaster';
+  });
+
+  selectKickAccountMode.addEventListener('change', () => {
+    const isBot = selectKickAccountMode.value === 'bot_account';
+    kickBotLoginGroup.style.display = isBot ? 'flex' : 'none';
+    if (isBot) checkKickBotLoginStatus();
+    else kickBotStatus.innerText = 'Broadcaster';
+  });
+
+  btnYtBotLogin.addEventListener('click', () => {
+    ipcRenderer.invoke('show-youtube-bot-login');
+  });
+
+  btnYtBotLogout.addEventListener('click', async () => {
+    await ipcRenderer.invoke('logout-youtube-bot');
+    checkYouTubeBotLoginStatus();
+    showToast('Logged out YouTube Bot account');
+  });
+
+  btnKickBotLogin.addEventListener('click', () => {
+    ipcRenderer.invoke('show-kick-bot-login');
+  });
+
+  btnKickBotLogout.addEventListener('click', async () => {
+    await ipcRenderer.invoke('logout-kick-bot');
+    checkKickBotLoginStatus();
+    showToast('Logged out Kick Bot account');
+  });
+
   btnSaveOllama.addEventListener('click', () => {
     saveOllamaSettings();
   });
@@ -351,6 +397,20 @@ function setupEventListeners() {
   });
 }
 
+async function checkYouTubeBotLoginStatus() {
+  ytBotStatus.innerText = 'Checking...';
+  const loggedIn = await ipcRenderer.invoke('check-youtube-bot-login');
+  ytBotStatus.innerText = loggedIn ? 'Authenticated' : 'Not Authenticated';
+  ytBotStatus.style.color = loggedIn ? '#22c55e' : '#ef4444';
+}
+
+async function checkKickBotLoginStatus() {
+  kickBotStatus.innerText = 'Checking...';
+  const loggedIn = await ipcRenderer.invoke('check-kick-bot-login');
+  kickBotStatus.innerText = loggedIn ? 'Authenticated' : 'Not Authenticated';
+  kickBotStatus.style.color = loggedIn ? '#22c55e' : '#ef4444';
+}
+
 // Ollama Settings Loader & Renderer
 async function loadOllamaSettings() {
   try {
@@ -362,6 +422,17 @@ async function loadOllamaSettings() {
     inputOllamaBotname.value = settings.botName || 'AI Bot';
     toggleBotYoutube.checked = settings.enableYouTube !== false;
     toggleBotKick.checked = settings.enableKick !== false;
+
+    selectYtAccountMode.value = settings.youtubeAccountMode || 'broadcaster';
+    ytBotLoginGroup.style.display = selectYtAccountMode.value === 'bot_account' ? 'flex' : 'none';
+    if (selectYtAccountMode.value === 'bot_account') checkYouTubeBotLoginStatus();
+    else ytBotStatus.innerText = 'Broadcaster';
+
+    selectKickAccountMode.value = settings.kickAccountMode || 'broadcaster';
+    kickBotLoginGroup.style.display = selectKickAccountMode.value === 'bot_account' ? 'flex' : 'none';
+    if (selectKickAccountMode.value === 'bot_account') checkKickBotLoginStatus();
+    else kickBotStatus.innerText = 'Broadcaster';
+
     inputOllamaPrompt.value = settings.systemPrompt || '';
     selectAutoRespond.value = settings.autoRespond || 'mention_only';
     inputOllamaCooldown.value = settings.cooldownSeconds !== undefined ? settings.cooldownSeconds : 10;
@@ -375,6 +446,12 @@ async function loadOllamaSettings() {
 
     renderCommandsList();
     renderTimersList();
+
+    fetchOllamaModels(inputOllamaUrl.value, settings.model);
+  } catch (err) {
+    console.error('Error loading Ollama settings:', err);
+  }
+}
 
     fetchOllamaModels(inputOllamaUrl.value, settings.model);
   } catch (err) {
@@ -510,6 +587,8 @@ async function saveOllamaSettings() {
     botName: inputOllamaBotname.value.trim() || 'AI Bot',
     enableYouTube: toggleBotYoutube.checked,
     enableKick: toggleBotKick.checked,
+    youtubeAccountMode: selectYtAccountMode.value,
+    kickAccountMode: selectKickAccountMode.value,
     systemPrompt: inputOllamaPrompt.value.trim(),
     autoRespond: selectAutoRespond.value,
     cooldownSeconds: parseInt(inputOllamaCooldown.value, 10) || 10,

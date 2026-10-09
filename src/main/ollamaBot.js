@@ -3,6 +3,7 @@ const configStore = require('./configStore');
 const websocketServer = require('./websocketServer');
 const chatCapture = require('./chatCapture');
 const kickCapture = require('./kickCapture');
+const botAccountSession = require('./botAccountSession');
 
 class OllamaBot {
   constructor() {
@@ -19,6 +20,8 @@ class OllamaBot {
       firstWordsTemplate: 'Welcome to the stream {username}! Thanks for chatting!',
       enableYouTube: true,
       enableKick: true,
+      youtubeAccountMode: 'broadcaster', // 'broadcaster' | 'bot_account'
+      kickAccountMode: 'broadcaster',      // 'broadcaster' | 'bot_account'
       commands: [
         { trigger: '!discord', response: 'Join our Discord community!' },
         { trigger: '!socials', response: 'Check out our socials!' }
@@ -242,9 +245,17 @@ class OllamaBot {
     });
 
     if (platform === 'youtube' && this.settings.enableYouTube) {
-      chatCapture.sendMessage(messageText);
+      if (this.settings.youtubeAccountMode === 'bot_account') {
+        botAccountSession.sendYouTubeBotMessage(chatCapture.currentVideoId, messageText);
+      } else {
+        chatCapture.sendMessage(messageText);
+      }
     } else if (platform === 'kick' && this.settings.enableKick) {
-      kickCapture.sendMessage(messageText);
+      if (this.settings.kickAccountMode === 'bot_account') {
+        botAccountSession.sendKickBotMessage(kickCapture.chatroomId, kickCapture.username, messageText);
+      } else {
+        kickCapture.sendMessage(messageText);
+      }
     }
   }
 

@@ -181,16 +181,45 @@
           </div>
         </div>
 
-        <!-- Platform Toggles -->
-        <div style="display: flex; gap: 16px; margin-top: 8px; background: rgba(0, 0, 0, 0.2); padding: 8px 12px; border-radius: 6px;">
-          <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer;">
-            <input type="checkbox" id="toggle-bot-youtube" checked>
-            <span>🔴 Respond on YouTube</span>
-          </label>
-          <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer;">
-            <input type="checkbox" id="toggle-bot-kick" checked>
-            <span>🟢 Respond on Kick</span>
-          </label>
+        <!-- Platform & Account Mode Controls -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; background: rgba(0, 0, 0, 0.2); padding: 10px 12px; border-radius: 8px;">
+          <!-- YouTube Bot Account Settings -->
+          <div>
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+              <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: bold; cursor: pointer; color: #f43f5e;">
+                <input type="checkbox" id="toggle-bot-youtube" checked>
+                <span>🔴 YouTube Bot</span>
+              </label>
+              <span id="yt-bot-status" style="font-size: 11px; color: var(--text-muted);">Broadcaster</span>
+            </div>
+            <select id="select-yt-account-mode" class="input-select" style="width: 100%; font-size: 11px; padding: 4px; border-radius: 4px; background: #18181b; color: #fff; border: 1px solid #3f3f46; margin-bottom: 6px;">
+              <option value="broadcaster">Broadcaster Account (You)</option>
+              <option value="bot_account">Dedicated YouTube Bot Account</option>
+            </select>
+            <div id="yt-bot-login-group" style="display: none; gap: 6px;">
+              <button id="btn-yt-bot-login" class="btn-secondary" style="font-size: 11px; padding: 4px 8px; flex: 1;">🔑 Login YT Bot</button>
+              <button id="btn-yt-bot-logout" class="btn-secondary" style="font-size: 11px; padding: 4px 8px; color: #ef4444;">🚪 Logout</button>
+            </div>
+          </div>
+
+          <!-- Kick Bot Account Settings -->
+          <div>
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+              <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: bold; cursor: pointer; color: #53fc18;">
+                <input type="checkbox" id="toggle-bot-kick" checked>
+                <span>🟢 Kick Bot</span>
+              </label>
+              <span id="kick-bot-status" style="font-size: 11px; color: var(--text-muted);">Broadcaster</span>
+            </div>
+            <select id="select-kick-account-mode" class="input-select" style="width: 100%; font-size: 11px; padding: 4px; border-radius: 4px; background: #18181b; color: #fff; border: 1px solid #3f3f46; margin-bottom: 6px;">
+              <option value="broadcaster">Broadcaster Account (You)</option>
+              <option value="bot_account">Dedicated Kick Bot Account</option>
+            </select>
+            <div id="kick-bot-login-group" style="display: none; gap: 6px;">
+              <button id="btn-kick-bot-login" class="btn-secondary" style="font-size: 11px; padding: 4px 8px; flex: 1;">🔑 Login Kick Bot</button>
+              <button id="btn-kick-bot-logout" class="btn-secondary" style="font-size: 11px; padding: 4px 8px; color: #ef4444;">🚪 Logout</button>
+            </div>
+          </div>
         </div>
 
         <!-- System Prompt & Persona -->

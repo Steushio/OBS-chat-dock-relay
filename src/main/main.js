@@ -25,6 +25,8 @@ const youtubeSession = require('./youtubeSession');
 const streamManager = require('./streamManager');
 const chatCapture = require('./chatCapture');
 const kickCapture = require('./kickCapture');
+const botAccountSession = require('./botAccountSession');
+const ollamaBot = require('./ollamaBot');
 
 let mainWindow = null;
 let tray = null;

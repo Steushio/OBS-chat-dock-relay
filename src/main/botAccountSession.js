@@ -1,0 +1,340 @@
+const { BrowserWindow, session, ipcMain } = require('electron');
+const path = require('path');
+const websocketServer = require('./websocketServer');
+
+class BotAccountSession {
+  constructor() {
+    this.ytPartition = 'persist:youtube_bot';
+    this.kickPartition = 'persist:kick_bot';
+
+    this.ytLoginWindow = null;
+    this.kickLoginWindow = null;
+
+    this.ytBotChatWindow = null;
+    this.ytBotVideoId = null;
+
+    this.kickBotWindow = null;
+
+    this.setupIpc();
+  }
+
+  setupIpc() {
+    ipcMain.handle('show-youtube-bot-login', (event) => {
+      const parent = BrowserWindow.fromWebContents(event.sender);
+      this.showYouTubeBotLogin(parent);
+    });
+
+    ipcMain.handle('show-kick-bot-login', (event) => {
+      const parent = BrowserWindow.fromWebContents(event.sender);
+      this.showKickBotLogin(parent);
+    });
+
+    ipcMain.handle('check-youtube-bot-login', async () => {
+      return await this.checkYouTubeBotLogin();
+    });
+
+    ipcMain.handle('check-kick-bot-login', async () => {
+      return await this.checkKickBotLogin();
+    });
+
+    ipcMain.handle('logout-youtube-bot', async () => {
+      const s = session.fromPartition(this.ytPartition);
+      await s.clearStorageData();
+      if (this.ytBotChatWindow && !this.ytBotChatWindow.isDestroyed()) {
+        this.ytBotChatWindow.destroy();
+        this.ytBotChatWindow = null;
+      }
+      websocketServer.logSystem('[YouTube Bot] Logged out from Bot account.');
+      return true;
+    });
+
+    ipcMain.handle('logout-kick-bot', async () => {
+      const s = session.fromPartition(this.kickPartition);
+      await s.clearStorageData();
+      if (this.kickBotWindow && !this.kickBotWindow.isDestroyed()) {
+        this.kickBotWindow.destroy();
+        this.kickBotWindow = null;
+      }
+      websocketServer.logSystem('[Kick Bot] Logged out from Bot account.');
+      return true;
+    });
+  }
+
+  // --- YouTube Bot Account ---
+  showYouTubeBotLogin(parentWindow) {
+    if (this.ytLoginWindow && !this.ytLoginWindow.isDestroyed()) {
+      this.ytLoginWindow.focus();
+      return;
+    }
+
+    this.ytLoginWindow = new BrowserWindow({
+      width: 900,
+      height: 700,
+      parent: parentWindow || null,
+      modal: true,
+      title: 'Sign In to YouTube Bot Account',
+      icon: path.join(__dirname, '..', 'assets', 'icon.png'),
+      webPreferences: {
+        partition: this.ytPartition,
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true
+      }
+    });
+
+    this.ytLoginWindow.setMenu(null);
+    this.ytLoginWindow.loadURL('https://studio.youtube.com/');
+
+    websocketServer.logSystem('[YouTube Bot] Login window opened');
+
+    const checkNav = (url) => {
+      if (url.includes('studio.youtube.com') && !url.includes('accounts.google.com')) {
+        websocketServer.logSystem('[YouTube Bot] Dedicated Bot account authenticated!');
+        if (parentWindow) {
+          parentWindow.webContents.send('youtube-bot-login-changed', { loggedIn: true });
+        }
+        setTimeout(() => {
+          if (this.ytLoginWindow && !this.ytLoginWindow.isDestroyed()) {
+            this.ytLoginWindow.close();
+          }
+        }, 2000);
+      }
+    };
+
+    this.ytLoginWindow.webContents.on('did-navigate', (e, url) => checkNav(url));
+    this.ytLoginWindow.webContents.on('did-redirect-navigation', (e, url) => checkNav(url));
+
+    this.ytLoginWindow.on('closed', () => {
+      this.ytLoginWindow = null;
+    });
+  }
+
+  async checkYouTubeBotLogin() {
+    return new Promise((resolve) => {
+      const probe = new BrowserWindow({
+        width: 400,
+        height: 400,
+        show: false,
+        webPreferences: {
+          partition: this.ytPartition,
+          nodeIntegration: false,
+          contextIsolation: true,
+          sandbox: true
+        }
+      });
+
+      probe.loadURL('https://studio.youtube.com/');
+
+      const timer = setTimeout(() => {
+        if (!probe.isDestroyed()) probe.destroy();
+        resolve(false);
+      }, 12000);
+
+      const checkUrl = (url) => {
+        if (url.includes('accounts.google.com')) {
+          clearTimeout(timer);
+          probe.destroy();
+          resolve(false);
+        } else if (url.includes('studio.youtube.com')) {
+          clearTimeout(timer);
+          probe.destroy();
+          resolve(true);
+        }
+      };
+
+      probe.webContents.on('did-navigate', (e, url) => checkUrl(url));
+      probe.webContents.on('did-redirect-navigation', (e, url) => checkUrl(url));
+    });
+  }
+
+  async sendYouTubeBotMessage(videoId, messageText) {
+    if (!videoId) return false;
+
+    const chatUrl = `https://www.youtube.com/live_chat?is_popout=1&v=${videoId}`;
+
+    if (!this.ytBotChatWindow || this.ytBotChatWindow.isDestroyed()) {
+      this.ytBotChatWindow = new BrowserWindow({
+        width: 100,
+        height: 100,
+        show: false,
+        skipTaskbar: true,
+        frame: false,
+        webPreferences: {
+          partition: this.ytPartition,
+          nodeIntegration: false,
+          contextIsolation: true,
+          sandbox: true,
+          backgroundThrottling: false
+        }
+      });
+      this.ytBotChatWindow.setMenu(null);
+      this.ytBotChatWindow.webContents.setAudioMuted(true);
+      this.ytBotChatWindow.loadURL(chatUrl);
+      this.ytBotVideoId = videoId;
+      await new Promise(r => setTimeout(r, 4000));
+    } else if (this.ytBotVideoId !== videoId) {
+      this.ytBotChatWindow.loadURL(chatUrl);
+      this.ytBotVideoId = videoId;
+      await new Promise(r => setTimeout(r, 4000));
+    }
+
+    try {
+      return await this.ytBotChatWindow.webContents.executeJavaScript(`
+        (async function(text) {
+          try {
+            const inputEl = document.querySelector('#input[contenteditable="true"], yt-live-chat-message-input-renderer #input');
+            if (!inputEl) return false;
+            
+            inputEl.focus();
+            inputEl.innerText = text;
+            inputEl.dispatchEvent(new InputEvent('input', { bubbles: true }));
+
+            await new Promise(r => setTimeout(r, 200));
+
+            const sendBtn = document.querySelector('#send-button button, yt-live-chat-message-input-renderer #send-button button');
+            if (sendBtn && !sendBtn.disabled) {
+              sendBtn.click();
+              return true;
+            }
+
+            inputEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+            return true;
+          } catch (e) {
+            return false;
+          }
+        })(${JSON.stringify(messageText)})
+      `);
+    } catch (err) {
+      websocketServer.logSystem(`[YouTube Bot Account] Send error: ${err.message}`, 'error');
+      return false;
+    }
+  }
+
+  // --- Kick Bot Account ---
+  showKickBotLogin(parentWindow) {
+    if (this.kickLoginWindow && !this.kickLoginWindow.isDestroyed()) {
+      this.kickLoginWindow.focus();
+      return;
+    }
+
+    this.kickLoginWindow = new BrowserWindow({
+      width: 900,
+      height: 700,
+      parent: parentWindow || null,
+      modal: true,
+      title: 'Sign In to Kick Bot Account',
+      icon: path.join(__dirname, '..', 'assets', 'icon.png'),
+      webPreferences: {
+        partition: this.kickPartition,
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true
+      }
+    });
+
+    this.kickLoginWindow.setMenu(null);
+    this.kickLoginWindow.loadURL('https://kick.com/login');
+
+    websocketServer.logSystem('[Kick Bot] Login window opened');
+
+    this.kickLoginWindow.on('closed', () => {
+      this.kickLoginWindow = null;
+      if (parentWindow) {
+        this.checkKickBotLogin().then(loggedIn => {
+          parentWindow.webContents.send('kick-bot-login-changed', { loggedIn });
+        });
+      }
+    });
+  }
+
+  async checkKickBotLogin() {
+    return new Promise((resolve) => {
+      const probe = new BrowserWindow({
+        width: 400,
+        height: 400,
+        show: false,
+        webPreferences: {
+          partition: this.kickPartition,
+          nodeIntegration: false,
+          contextIsolation: true,
+          sandbox: true
+        }
+      });
+
+      probe.loadURL('https://kick.com/');
+
+      const timer = setTimeout(() => {
+        if (!probe.isDestroyed()) probe.destroy();
+        resolve(false);
+      }, 10000);
+
+      probe.webContents.on('did-finish-load', async () => {
+        try {
+          const loggedIn = await probe.webContents.executeJavaScript(`
+            (function() {
+              return !!(document.querySelector('button[aria-label="User profile"]') || document.cookie.includes('kick_session'));
+            })()
+          `);
+          clearTimeout(timer);
+          probe.destroy();
+          resolve(!!loggedIn);
+        } catch (e) {
+          clearTimeout(timer);
+          probe.destroy();
+          resolve(false);
+        }
+      });
+    });
+  }
+
+  async sendKickBotMessage(chatroomId, username, messageText) {
+    if (!this.kickBotWindow || this.kickBotWindow.isDestroyed()) {
+      this.kickBotWindow = new BrowserWindow({
+        width: 100,
+        height: 100,
+        show: false,
+        skipTaskbar: true,
+        frame: false,
+        webPreferences: {
+          partition: this.kickPartition,
+          nodeIntegration: false,
+          contextIsolation: true,
+          sandbox: true,
+          backgroundThrottling: false
+        }
+      });
+      this.kickBotWindow.setMenu(null);
+      this.kickBotWindow.webContents.setAudioMuted(true);
+      this.kickBotWindow.loadURL(`https://kick.com/${username || 'kick'}`);
+      await new Promise(r => setTimeout(r, 4000));
+    }
+
+    try {
+      return await this.kickBotWindow.webContents.executeJavaScript(`
+        (async function(text, chatroomId) {
+          try {
+            if (chatroomId) {
+              const res = await fetch('https://kick.com/api/v2/messages/send/' + chatroomId, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Accept': 'application/json'
+                },
+                body: JSON.stringify({ content: text, type: 'message' })
+              });
+              if (res.ok) return true;
+            }
+            return false;
+          } catch (e) {
+            return false;
+          }
+        })(${JSON.stringify(messageText)}, ${JSON.stringify(chatroomId)})
+      `);
+    } catch (err) {
+      websocketServer.logSystem(`[Kick Bot Account] Send error: ${err.message}`, 'error');
+      return false;
+    }
+  }
+}
+
+module.exports = new BotAccountSession();
