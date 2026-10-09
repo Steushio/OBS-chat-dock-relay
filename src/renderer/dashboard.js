@@ -76,9 +76,17 @@ const kickBotLoginGroup = document.getElementById('kick-bot-login-group');
 const btnKickBotLogin = document.getElementById('btn-kick-bot-login');
 const btnKickBotLogout = document.getElementById('btn-kick-bot-logout');
 const kickBotStatus = document.getElementById('kick-bot-status');
+const selectPersonaPreset = document.getElementById('select-persona-preset');
 const inputOllamaPrompt = document.getElementById('input-ollama-prompt');
 const selectAutoRespond = document.getElementById('select-auto-respond');
 const inputOllamaCooldown = document.getElementById('input-ollama-cooldown');
+
+const personaPresets = {
+  hype: `You are a hype, energetic, and casual live stream chat bot for a live gaming stream.\nRules:\n- Respond naturally like a streamer or chat moderator using casual stream slang, hype, or emojis.\n- NEVER sound like customer support, an assistant, or say "How can I help you today?".\n- Keep responses short, direct, and under 15 words.`,
+  casual: `You are a friendly, relaxed streamer bot chatting with viewers in a live stream.\nRules:\n- Be warm, casual, and conversational like a friend in chat.\n- NEVER sound corporate, formal, or like an assistant.\n- Keep responses short and under 15 words.`,
+  mod: `You are a fun live stream moderator bot.\nRules:\n- Keep the chat energy high, welcome chatters, hype up game plays, and use short casual stream responses.\n- NEVER say "How can I help you today?".\n- Keep responses under 15 words.`,
+  meme: `You are a witty, meme-loving stream chat bot.\nRules:\n- Give funny, short, casual banter to chatters.\n- NEVER sound like customer support or a corporate bot.\n- Keep responses under 15 words.`
+};
 
 const toggleFirstWords = document.getElementById('toggle-first-words');
 const selectFirstWordsMode = document.getElementById('select-first-words-mode');
@@ -318,6 +326,13 @@ function setupEventListeners() {
   // Ollama Bot Event Listeners
   btnFetchOllamaModels.addEventListener('click', () => {
     fetchOllamaModels(inputOllamaUrl.value, selectOllamaModel.value);
+  });
+
+  selectPersonaPreset.addEventListener('change', () => {
+    const val = selectPersonaPreset.value;
+    if (val && personaPresets[val]) {
+      inputOllamaPrompt.value = personaPresets[val];
+    }
   });
 
   btnAddCommand.addEventListener('click', () => {

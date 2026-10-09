@@ -224,8 +224,17 @@
 
         <!-- System Prompt & Persona -->
         <div class="form-group" style="margin-top: 10px;">
-          <label for="input-ollama-prompt">System Persona & AI Instructions</label>
-          <textarea id="input-ollama-prompt" rows="2" style="width: 100%; font-size: 12px; padding: 8px; border-radius: 6px; background: #18181b; color: #fff; border: 1px solid #3f3f46; font-family: inherit;" placeholder="You are a helpful live stream AI assistant. Keep responses under 20 words."></textarea>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <label for="input-ollama-prompt" style="margin: 0;">System Persona & AI Instructions</label>
+            <select id="select-persona-preset" class="input-select" style="font-size: 11px; padding: 2px 6px; border-radius: 4px; background: #18181b; color: var(--accent-cyan); border: 1px solid #3f3f46;">
+              <option value="hype">🔥 Hype Stream Gamer (Recommended)</option>
+              <option value="casual">😎 Casual Streamer Friend</option>
+              <option value="mod">🤖 Fun Twitch/Kick Mod</option>
+              <option value="meme">🎯 Meme & Sarcastic Bot</option>
+              <option value="custom">⚙️ Custom Prompt</option>
+            </select>
+          </div>
+          <textarea id="input-ollama-prompt" rows="3" style="width: 100%; font-size: 12px; padding: 8px; border-radius: 6px; background: #18181b; color: #fff; border: 1px solid #3f3f46; font-family: inherit;" placeholder="You are a hype live stream gamer chat bot..."></textarea>
         </div>
 
         <!-- Auto-Respond & Cooldown -->

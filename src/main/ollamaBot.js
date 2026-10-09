@@ -12,7 +12,7 @@ class OllamaBot {
       ollamaUrl: 'http://localhost:11434',
       model: 'llama3',
       botName: 'AI Bot',
-      systemPrompt: 'You are a helpful and energetic live stream AI moderator assistant. Keep responses under 20 words.',
+      systemPrompt: 'You are a hype, energetic, and casual live stream chat bot for a live gaming stream.\nRules:\n- Respond naturally like a streamer or chat moderator using casual stream slang, hype, or emojis.\n- NEVER sound like customer support, an assistant, or say "How can I help you today?".\n- Keep responses short, direct, and under 15 words.',
       autoRespond: 'mention_only', // 'off' | 'mention_only' | 'all_chat'
       cooldownSeconds: 10,
       firstWordsEnabled: true,
@@ -102,7 +102,15 @@ class OllamaBot {
     const model = overrideConfig?.model || this.settings.model || 'llama3';
     const systemPrompt = overrideConfig?.systemPrompt || this.settings.systemPrompt;
 
-    const fullPrompt = `${systemPrompt}\nChatter ${username} on ${platform} says: ${userPrompt}\nShort response:`;
+    const fullPrompt = `System Instructions: ${systemPrompt}
+
+[Live Stream Chat Context]
+Platform: ${platform}
+Chatter: @${username}
+Viewer Message: "${userPrompt}"
+
+Instruction: Write a short 1-line live stream chat reply to @${username}. Do NOT say "How can I help you today?" or sound like customer support. Keep it casual, hype, and short (under 15 words)!
+Chat Reply:`;
 
     try {
       const response = await net.fetch(`${baseUrl}/api/generate`, {
