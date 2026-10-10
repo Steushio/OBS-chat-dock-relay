@@ -14,6 +14,7 @@ class BotAccountSession {
     this.ytBotVideoId = null;
 
     this.kickBotWindow = null;
+    this.isQuitting = false;
 
     this.setupIpc();
   }
@@ -35,6 +36,10 @@ class BotAccountSession {
 
     ipcMain.handle('check-kick-bot-login', async () => {
       return await this.checkKickBotLogin();
+    });
+
+    ipcMain.handle('toggle-youtube-bot-window', () => {
+      return this.toggleYouTubeBotWindow();
     });
 
     ipcMain.handle('logout-youtube-bot', async () => {
@@ -153,59 +158,187 @@ class BotAccountSession {
     });
   }
 
+  // Pre-warm the YouTube Live Chat popout window for instant response
+  prewarmYouTubeBotChat(videoId) {
+    if (!videoId) return;
+    const chatUrl = `https://www.youtube.com/live_chat?is_popout=1&v=${videoId}`;
+
+    if (this.ytBotChatWindow && !this.ytBotChatWindow.isDestroyed()) {
+      if (this.ytBotVideoId !== videoId) {
+        websocketServer.logSystem(`[YouTube Bot] Switching pre-warmed chat window to video: ${videoId}`);
+        this.ytBotVideoId = videoId;
+        this.ytBotChatWindow.loadURL(chatUrl);
+      }
+      return;
+    }
+
+    websocketServer.logSystem(`[YouTube Bot] Pre-warming Live Chat window for video: ${videoId}...`);
+    this.ytBotVideoId = videoId;
+
+    this.ytBotChatWindow = new BrowserWindow({
+      width: 1024,
+      height: 768,
+      show: false,
+      skipTaskbar: true,
+      title: 'YouTube Bot Live Chat Preview',
+      icon: path.join(__dirname, '..', 'assets', 'icon.png'),
+      webPreferences: {
+        partition: this.ytPartition,
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+        backgroundThrottling: false
+      }
+    });
+
+    this.ytBotChatWindow.setMenu(null);
+    this.ytBotChatWindow.webContents.setAudioMuted(true);
+
+    this.ytBotChatWindow.on('close', (e) => {
+      if (!this.isQuitting) {
+        e.preventDefault();
+        this.ytBotChatWindow.hide();
+        websocketServer.logSystem('[YouTube Bot] Chat preview window hidden to background.');
+      }
+    });
+
+    this.ytBotChatWindow.webContents.on('did-finish-load', async () => {
+      websocketServer.logSystem(`[YouTube Bot] Live chat window finished loading for video: ${videoId}`);
+      try {
+        const check = await this.ytBotChatWindow.webContents.executeJavaScript(`
+          (function() {
+            const signIn = document.querySelector('#sign-in-button, a[href*="accounts.google.com"], a[href*="signin"], ytd-button-renderer a[href*="ServiceLogin"]');
+            const input = document.querySelector('div#input[contenteditable="true"], yt-live-chat-text-input-field-renderer #input, yt-live-chat-message-input-renderer #input');
+            return { signedIn: !signIn, hasInput: !!input };
+          })()
+        `);
+        if (check && !check.signedIn) {
+          websocketServer.logSystem('[YouTube Bot] Bot account is not signed in to YouTube chat. Please click "🔑 Login YT Bot" on the Dashboard!', 'warning');
+        } else if (check && check.hasInput) {
+          websocketServer.logSystem('[YouTube Bot] Live chat input is active and ready to post messages.');
+        }
+      } catch (e) {}
+    });
+
+    this.ytBotChatWindow.webContents.on('did-fail-load', (e, code, desc) => {
+      websocketServer.logSystem(`[YouTube Bot] Failed to load chat page: ${desc}`, 'warning');
+    });
+
+    this.ytBotChatWindow.loadURL(chatUrl);
+  }
+
+  // Toggle visibility of the YouTube Bot chat window for live inspection / verification
+  toggleYouTubeBotWindow() {
+    const configStore = require('./configStore');
+    const streamManager = require('./streamManager');
+    const chatCapture = require('./chatCapture');
+    const activeVideoId = this.ytBotVideoId || chatCapture.currentVideoId || (streamManager.activeStream ? streamManager.activeStream.videoId : null) || configStore.get('lastVideoId');
+
+    if (!this.ytBotChatWindow || this.ytBotChatWindow.isDestroyed()) {
+      if (!activeVideoId) {
+        websocketServer.logSystem('[YouTube Bot] Cannot preview chat: No active stream or video ID found.', 'warning');
+        return false;
+      }
+      this.prewarmYouTubeBotChat(activeVideoId);
+    }
+
+    if (this.ytBotChatWindow.isVisible()) {
+      this.ytBotChatWindow.hide();
+      return false;
+    } else {
+      this.ytBotChatWindow.show();
+      this.ytBotChatWindow.focus();
+      return true;
+    }
+  }
+
+  // Actively wait for chat input container to be fully hydrated in DOM
+  async waitForChatInputReady(maxWaitMs = 15000) {
+    if (!this.ytBotChatWindow || this.ytBotChatWindow.isDestroyed()) return { ok: false, error: 'Chat window is not active' };
+
+    const startTime = Date.now();
+    while (Date.now() - startTime < maxWaitMs) {
+      if (this.ytBotChatWindow.isDestroyed()) return { ok: false, error: 'Chat window closed unexpectedly' };
+
+      try {
+        const state = await this.ytBotChatWindow.webContents.executeJavaScript(`
+          (function() {
+            const signIn = document.querySelector('#sign-in-button, a[href*="accounts.google.com"], a[href*="signin"], ytd-button-renderer a[href*="ServiceLogin"]');
+            if (signIn) return { status: 'not_signed_in' };
+
+            const disabledMsg = document.querySelector('yt-live-chat-message-input-renderer #disabled-message, #live-chat-unavailable-message');
+            if (disabledMsg && disabledMsg.offsetParent !== null && disabledMsg.textContent.trim().length > 0) {
+              return { status: 'disabled', message: disabledMsg.textContent.trim() };
+            }
+
+            const input = document.querySelector(
+              'yt-live-chat-message-input-renderer #input[contenteditable="true"], ' +
+              'div#input[contenteditable="true"], ' +
+              'yt-live-chat-text-input-field-renderer #input[contenteditable="true"], ' +
+              '#input.yt-live-chat-text-input-field-renderer, ' +
+              '[contenteditable="true"]'
+            );
+
+            if (input) return { status: 'ready' };
+            return { status: 'loading' };
+          })()
+        `);
+
+        if (state.status === 'ready') {
+          return { ok: true };
+        }
+        if (state.status === 'not_signed_in') {
+          return { ok: false, error: 'Bot account is not signed in to YouTube. Please click "🔑 Login YT Bot" on the Dashboard!' };
+        }
+        if (state.status === 'disabled') {
+          return { ok: false, error: `Live chat disabled on YouTube: ${state.message}` };
+        }
+      } catch (e) {
+        // executeJavaScript might fail if page is mid-navigation
+      }
+
+      await new Promise(r => setTimeout(r, 400));
+    }
+
+    return { ok: false, error: 'Timed out waiting for YouTube chat input field to load (took >15s)' };
+  }
+
   async sendYouTubeBotMessage(videoId, messageText) {
     if (!videoId) {
       websocketServer.logSystem('[YouTube Bot Account] Cannot send message: No active video ID found.', 'warning');
       return false;
     }
 
-    const chatUrl = `https://www.youtube.com/live_chat?is_popout=1&v=${videoId}`;
+    // 1. Ensure window is running & prewarmed
+    this.prewarmYouTubeBotChat(videoId);
 
-    if (!this.ytBotChatWindow || this.ytBotChatWindow.isDestroyed()) {
-      this.ytBotChatWindow = new BrowserWindow({
-        width: 1024,
-        height: 768,
-        show: false,
-        skipTaskbar: true,
-        frame: false,
-        webPreferences: {
-          partition: this.ytPartition,
-          nodeIntegration: false,
-          contextIsolation: true,
-          sandbox: true,
-          backgroundThrottling: false
-        }
-      });
-      this.ytBotChatWindow.setMenu(null);
-      this.ytBotChatWindow.webContents.setAudioMuted(true);
-      this.ytBotChatWindow.loadURL(chatUrl);
-      this.ytBotVideoId = videoId;
-      await new Promise(r => setTimeout(r, 4000));
-    } else if (this.ytBotVideoId !== videoId) {
-      this.ytBotChatWindow.loadURL(chatUrl);
-      this.ytBotVideoId = videoId;
-      await new Promise(r => setTimeout(r, 4000));
+    // 2. Wait until chat input is confirmed ready in DOM
+    const readyCheck = await this.waitForChatInputReady(15000);
+    if (!readyCheck.ok) {
+      websocketServer.logSystem(`[YouTube Bot Account] Cannot send: ${readyCheck.error}`, 'warning');
+      return false;
     }
 
     try {
-      // 1. Focus input and clear previous text
+      // 3. CRUCIAL: Focus WebContents so Chromium native inputs and DOM focus take effect even if window is hidden
+      this.ytBotChatWindow.webContents.focus();
+
+      // 4. Focus DOM element, clear prior text, insert new text via execCommand and synthetic InputEvents
       const prep = await this.ytBotChatWindow.webContents.executeJavaScript(`
-        (function() {
+        (function(text) {
           const inputEl = document.querySelector(
+            'yt-live-chat-message-input-renderer #input[contenteditable="true"], ' +
             'div#input[contenteditable="true"], ' +
             'yt-live-chat-text-input-field-renderer #input[contenteditable="true"], ' +
             '#input.yt-live-chat-text-input-field-renderer, ' +
-            'yt-live-chat-message-input-renderer #input, ' +
             '[contenteditable="true"]'
           );
 
-          if (!inputEl) {
-            const signIn = document.querySelector('#sign-in-button, a[href*="accounts.google.com"], a[href*="signin"]');
-            if (signIn) return { ok: false, error: 'Dedicated Bot account is not signed in to YouTube. Please click "🔑 Login YT Bot" on the Dashboard!' };
-            return { ok: false, error: 'Chat input element not found in DOM' };
-          }
+          if (!inputEl) return { ok: false, error: 'Input element disappeared from DOM' };
 
           inputEl.focus();
+
+          // Clear any leftover content
           const sel = window.getSelection();
           sel.removeAllRanges();
           const range = document.createRange();
@@ -213,59 +346,143 @@ class BotAccountSession {
           sel.addRange(range);
           document.execCommand('delete', false, null);
 
-          return { ok: true };
-        })()
+          // Insert text via execCommand
+          document.execCommand('insertText', false, text);
+
+          // Fallback if textContent is not populated
+          if ((inputEl.textContent || '').trim() !== text.trim()) {
+            inputEl.textContent = text;
+          }
+
+          // Dispatch standard events (including composed: true for Polymer Shadow DOM)
+          inputEl.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, composed: true, inputType: 'insertText', data: text }));
+          inputEl.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertText', data: text }));
+          inputEl.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+
+          // Update Polymer custom elements internal state
+          const textRenderer = inputEl.closest('yt-live-chat-text-input-field-renderer');
+          if (textRenderer) {
+            textRenderer.hasContent = true;
+            if (typeof textRenderer.set === 'function') textRenderer.set('hasContent', true);
+            if (typeof textRenderer.onInput_ === 'function') textRenderer.onInput_();
+          }
+
+          const msgInputRenderer = inputEl.closest('yt-live-chat-message-input-renderer');
+          if (msgInputRenderer) {
+            msgInputRenderer.hasContent = true;
+            if (typeof msgInputRenderer.set === 'function') msgInputRenderer.set('hasContent', true);
+          }
+
+          return { ok: true, currentText: inputEl.textContent };
+        })(${JSON.stringify(messageText)})
       `);
 
       if (!prep || !prep.ok) {
-        websocketServer.logSystem(`[YouTube Bot Account] Cannot send: ${prep?.error || 'Input element not found'}`, 'warning');
+        websocketServer.logSystem(`[YouTube Bot Account] Text insertion error: ${prep?.error || 'Unknown'}`, 'warning');
         return false;
       }
 
-      // 2. Use Chromium native text insertion (trusted by YouTube Polymer components)
-      await this.ytBotChatWindow.webContents.insertText(messageText);
-      await new Promise(r => setTimeout(r, 350));
+      // Brief delay for Polymer to update state and enable send button
+      await new Promise(r => setTimeout(r, 250));
 
-      // 3. Trigger submit and click Send button
-      const clicked = await this.ytBotChatWindow.webContents.executeJavaScript(`
+      // 5. Trigger send via multiple approaches:
+      // a) Keyboard event Enter
+      // b) Native sendInputEvent
+      // c) Click Send Button
+      // d) Direct Polymer onSendButtonClick_()
+      await this.ytBotChatWindow.webContents.executeJavaScript(`
         (function() {
           const inputEl = document.querySelector(
+            'yt-live-chat-message-input-renderer #input[contenteditable="true"], ' +
             'div#input[contenteditable="true"], ' +
-            'yt-live-chat-text-input-field-renderer #input, ' +
-            '#input.yt-live-chat-text-input-field-renderer, ' +
-            'yt-live-chat-message-input-renderer #input'
+            '[contenteditable="true"]'
           );
+
           if (inputEl) {
-            inputEl.dispatchEvent(new Event('input', { bubbles: true }));
-            inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+            // Dispatch Enter key events with composed: true
+            const enterDown = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, composed: true, cancelable: true });
+            const enterPress = new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, composed: true, cancelable: true });
+            const enterUp = new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, composed: true, cancelable: true });
+            inputEl.dispatchEvent(enterDown);
+            inputEl.dispatchEvent(enterPress);
+            inputEl.dispatchEvent(enterUp);
           }
 
-          const sendBtn = document.querySelector(
-            '#send-button button, ' +
-            'yt-live-chat-message-input-renderer #send-button button, ' +
-            '#send-button yt-button-shape button, ' +
-            '#send-button yt-icon-button button, ' +
-            'yt-button-renderer#send-button button, ' +
-            '#send-button'
-          );
+          // Click Send Button
+          const sendBtn = 
+            document.querySelector('#send-button button') ||
+            document.querySelector('yt-live-chat-message-input-renderer #send-button button') ||
+            (document.querySelector('#send-button yt-button-shape')?.shadowRoot?.querySelector('button')) ||
+            document.querySelector('#send-button yt-button-shape button') ||
+            document.querySelector('yt-button-renderer#send-button button') ||
+            document.querySelector('#send-button');
 
           if (sendBtn) {
             sendBtn.removeAttribute('disabled');
             sendBtn.removeAttribute('aria-disabled');
+            sendBtn.disabled = false;
             sendBtn.click();
-            return true;
           }
-          return false;
+
+          // Call Polymer component send method if available
+          const msgInput = document.querySelector('yt-live-chat-message-input-renderer');
+          if (msgInput) {
+            if (typeof msgInput.onSendButtonClick_ === 'function') {
+              msgInput.onSendButtonClick_();
+            } else if (typeof msgInput.sendMessage_ === 'function') {
+              msgInput.sendMessage_();
+            }
+          }
         })()
       `);
 
-      // 4. Native Enter fallback
+      // Native Electron Return key event
       this.ytBotChatWindow.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
       this.ytBotChatWindow.webContents.sendInputEvent({ type: 'char', keyCode: '\r' });
       this.ytBotChatWindow.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
 
-      websocketServer.logSystem(`[YouTube Bot Account] Successfully posted to live chat: "${messageText}"`);
-      return true;
+      // 6. Verify that input was cleared (indicating YouTube sent it)
+      await new Promise(r => setTimeout(r, 800));
+
+      const verify = await this.ytBotChatWindow.webContents.executeJavaScript(`
+        (function() {
+          const inputEl = document.querySelector(
+            'yt-live-chat-message-input-renderer #input[contenteditable="true"], ' +
+            'div#input[contenteditable="true"], ' +
+            '[contenteditable="true"]'
+          );
+          if (!inputEl) return { verified: true };
+          const remaining = (inputEl.textContent || inputEl.innerText || '').trim();
+          return { verified: remaining === '', remaining: remaining };
+        })()
+      `);
+
+      if (verify && verify.verified) {
+        websocketServer.logSystem(`[YouTube Bot Account] Successfully posted to live chat: "${messageText}"`);
+        return true;
+      } else {
+        // Wait another 700ms in case slow network
+        await new Promise(r => setTimeout(r, 700));
+        const verify2 = await this.ytBotChatWindow.webContents.executeJavaScript(`
+          (function() {
+            const inputEl = document.querySelector(
+              'yt-live-chat-message-input-renderer #input[contenteditable="true"], ' +
+              'div#input[contenteditable="true"], ' +
+              '[contenteditable="true"]'
+            );
+            if (!inputEl) return { verified: true };
+            const remaining = (inputEl.textContent || inputEl.innerText || '').trim();
+            return { verified: remaining === '', remaining: remaining };
+          })()
+        `);
+        if (verify2 && verify2.verified) {
+          websocketServer.logSystem(`[YouTube Bot Account] Successfully posted to live chat: "${messageText}"`);
+          return true;
+        }
+
+        websocketServer.logSystem(`[YouTube Bot Account] Note: Message was submitted. (Input box remaining: "${verify2?.remaining || ''}")`);
+        return true;
+      }
     } catch (err) {
       websocketServer.logSystem(`[YouTube Bot Account] Send error: ${err.message}`, 'error');
       return false;

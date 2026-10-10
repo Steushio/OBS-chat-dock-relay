@@ -63,6 +63,7 @@ async function startApp() {
   streamManager.onStreamChange((stream) => {
     if (stream && stream.videoId) {
       chatCapture.switchStream(stream.videoId);
+      botAccountSession.prewarmYouTubeBotChat(stream.videoId);
       
       // Update UI dashboard
       if (mainWindow && !mainWindow.isDestroyed()) {
@@ -70,6 +71,12 @@ async function startApp() {
       }
     }
   });
+
+  // Prewarm bot chat if a previous video ID is stored
+  const lastVideoId = configStore.get('lastVideoId');
+  if (lastVideoId) {
+    botAccountSession.prewarmYouTubeBotChat(lastVideoId);
+  }
 
   // Relay WS logs/chat previews to the Dashboard UI
   setupDashboardRelays();
@@ -214,6 +221,7 @@ function createTray() {
       label: 'Quit Application',
       click: () => {
         isQuitting = true;
+        botAccountSession.isQuitting = true;
         chatCapture.stopCapture();
         streamManager.stopMonitoring();
         kickCapture.stop();
@@ -263,20 +271,52 @@ function updateLinuxAutoStart(enabled) {
         fs.mkdirSync(autostartDir, { recursive: true });
       }
 
+      // CRITICAL FOR APPIMAGE:
+      // When running inside an AppImage, process.execPath points to the temporary mount point
+      // in /tmp/.mount_xxxx/ which disappears upon reboot/app close.
+      // process.env.APPIMAGE contains the actual persistent path to the .AppImage file!
+      let targetExec = process.env.APPIMAGE;
+      if (!targetExec) {
+        if (process.execPath && !process.execPath.includes('.mount_')) {
+          targetExec = process.execPath;
+        } else {
+          const distAppImage = path.join(app.getPath('home'), 'Documents', 'OBS-chat-dock-relay', 'dist', 'OBS Chat Relay-1.0.0.AppImage');
+          if (fs.existsSync(distAppImage)) {
+            targetExec = distAppImage;
+          } else {
+            targetExec = process.execPath;
+          }
+        }
+      }
+
+      // Copy application icon to persistent userData for desktop entry
+      const iconSrc = path.join(__dirname, '..', 'assets', 'icon.png');
+      const iconDest = path.join(app.getPath('userData'), 'icon.png');
+      let iconPath = 'utilities-terminal';
+      try {
+        if (fs.existsSync(iconSrc)) {
+          fs.copyFileSync(iconSrc, iconDest);
+          iconPath = iconDest;
+        } else if (fs.existsSync(iconDest)) {
+          iconPath = iconDest;
+        }
+      } catch (e) {}
+
       const desktopContent = `[Desktop Entry]
 Type=Application
 Version=1.0
 Name=OBS Chat Relay
 Comment=Auto-start YouTube OBS Chat Relay on Linux Login
-Exec="${process.execPath}" --minimized
+Exec="${targetExec}" --minimized
 StartupNotify=false
 Terminal=false
-Icon=utilities-terminal
+Icon=${iconPath}
 Categories=Utility;
+X-GNOME-Autostart-enabled=true
 `;
 
       fs.writeFileSync(desktopFilePath, desktopContent, 'utf-8');
-      websocketServer.logSystem('Linux login auto-start entry successfully configured.');
+      websocketServer.logSystem(`Linux login auto-start configured with target: ${targetExec}`);
     } catch (err) {
       console.error('Failed to create autostart desktop file:', err);
     }
@@ -384,6 +424,81 @@ function setupIpcHandlers() {
     }
   });
 
+  // Settings Export to JSON file
+  ipcMain.handle('export-settings', async () => {
+    const { dialog } = require('electron');
+    try {
+      const result = await dialog.showSaveDialog(mainWindow, {
+        title: 'Export App & Bot Settings',
+        defaultPath: 'obs-chat-relay-settings.json',
+        filters: [{ name: 'JSON Files (*.json)', extensions: ['json'] }]
+      });
+
+      if (!result.canceled && result.filePath) {
+        const data = {
+          exportedAt: new Date().toISOString(),
+          version: '1.0.0',
+          ...configStore.getAll()
+        };
+        fs.writeFileSync(result.filePath, JSON.stringify(data, null, 2), 'utf-8');
+        websocketServer.logSystem(`[Settings] Exported settings to: ${result.filePath}`);
+        return { success: true, filePath: result.filePath };
+      }
+      return { success: false, canceled: true };
+    } catch (err) {
+      websocketServer.logSystem(`[Settings] Export failed: ${err.message}`, 'error');
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Settings Import from JSON file
+  ipcMain.handle('import-settings', async () => {
+    const { dialog } = require('electron');
+    try {
+      const result = await dialog.showOpenDialog(mainWindow, {
+        title: 'Import App & Bot Settings',
+        properties: ['openFile'],
+        filters: [{ name: 'JSON Files (*.json)', extensions: ['json'] }]
+      });
+
+      if (!result.canceled && result.filePaths.length > 0) {
+        const filePath = result.filePaths[0];
+        const content = fs.readFileSync(filePath, 'utf-8');
+        const parsed = JSON.parse(content);
+
+        if (typeof parsed !== 'object' || parsed === null) {
+          throw new Error('Invalid JSON settings format');
+        }
+
+        // If user imported a raw ollamaBotSettings object directly:
+        if (parsed.botName || (parsed.systemPrompt && !parsed.ollamaBotSettings)) {
+          configStore.set('ollamaBotSettings', {
+            ...configStore.get('ollamaBotSettings'),
+            ...parsed
+          });
+        } else {
+          // Merge full settings
+          for (const [key, val] of Object.entries(parsed)) {
+            if (key !== 'exportedAt' && key !== 'version') {
+              configStore.set(key, val);
+            }
+          }
+        }
+
+        // Reload Ollama bot with new settings and timers
+        ollamaBot.settings = ollamaBot.loadSettings();
+        ollamaBot.startTimers();
+
+        websocketServer.logSystem(`[Settings] Successfully imported settings from: ${filePath}`);
+        return { success: true, filePath, settings: configStore.getAll() };
+      }
+      return { success: false, canceled: true };
+    } catch (err) {
+      websocketServer.logSystem(`[Settings] Import failed: ${err.message}`, 'error');
+      return { success: false, error: err.message };
+    }
+  });
+
   // Open native file explorer to pick a local audio file
   ipcMain.handle('select-audio-file', async () => {
     const { dialog } = require('electron');
@@ -478,6 +593,11 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     // Standard tray application behavior: continue running in tray when dashboard is closed
   }
+});
+
+app.on('before-quit', () => {
+  isQuitting = true;
+  botAccountSession.isQuitting = true;
 });
 
 

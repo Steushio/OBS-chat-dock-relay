@@ -61,6 +61,11 @@ class ChatCapture {
     const chatUrl = `https://www.youtube.com/live_chat?is_popout=1&v=${videoId}`;
     websocketServer.logSystem(`Initializing Chat Capture for video: ${videoId}`);
 
+    try {
+      const botAccountSession = require('./botAccountSession');
+      botAccountSession.prewarmYouTubeBotChat(videoId);
+    } catch (e) {}
+
     if (this.chatWindow && !this.chatWindow.isDestroyed()) {
       // Re-use existing window by navigating to the new URL
       websocketServer.logSystem(`Redirecting active chat window to new stream...`);
@@ -129,19 +134,22 @@ class ChatCapture {
 
   async sendMessage(messageText) {
     if (!this.chatWindow || this.chatWindow.isDestroyed()) {
-      websocketServer.logSystem('[YouTube Bot] Cannot send chat message: Chat window not active.', 'warning');
+      websocketServer.logSystem('[YouTube Broadcaster Chat] Cannot send chat message: Chat window not active.', 'warning');
       return false;
     }
 
     try {
-      // 1. Focus input and prepare contenteditable container
+      // 1. Focus WebContents
+      this.chatWindow.webContents.focus();
+
+      // 2. Focus input and prepare contenteditable container
       const prep = await this.chatWindow.webContents.executeJavaScript(`
-        (function() {
+        (function(text) {
           const inputEl = document.querySelector(
+            'yt-live-chat-message-input-renderer #input[contenteditable="true"], ' +
             'div#input[contenteditable="true"], ' +
             'yt-live-chat-text-input-field-renderer #input[contenteditable="true"], ' +
             '#input.yt-live-chat-text-input-field-renderer, ' +
-            'yt-live-chat-message-input-renderer #input, ' +
             '[contenteditable="true"]'
           );
 
@@ -159,31 +167,54 @@ class ChatCapture {
           sel.addRange(range);
           document.execCommand('delete', false, null);
 
+          document.execCommand('insertText', false, text);
+          if ((inputEl.textContent || '').trim() !== text.trim()) {
+            inputEl.textContent = text;
+          }
+
+          inputEl.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, composed: true, inputType: 'insertText', data: text }));
+          inputEl.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertText', data: text }));
+          inputEl.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+
+          const textRenderer = inputEl.closest('yt-live-chat-text-input-field-renderer');
+          if (textRenderer) {
+            textRenderer.hasContent = true;
+            if (typeof textRenderer.set === 'function') textRenderer.set('hasContent', true);
+            if (typeof textRenderer.onInput_ === 'function') textRenderer.onInput_();
+          }
+
+          const msgInputRenderer = inputEl.closest('yt-live-chat-message-input-renderer');
+          if (msgInputRenderer) {
+            msgInputRenderer.hasContent = true;
+            if (typeof msgInputRenderer.set === 'function') msgInputRenderer.set('hasContent', true);
+          }
+
           return { ok: true };
-        })()
+        })(${JSON.stringify(messageText)})
       `);
 
       if (!prep || !prep.ok) {
-        websocketServer.logSystem(`[YouTube Chat] Cannot send: ${prep?.error || 'Input element not found'}`, 'warning');
+        websocketServer.logSystem(`[YouTube Broadcaster Chat] Cannot send: ${prep?.error || 'Input element not found'}`, 'warning');
         return false;
       }
 
-      // 2. Use Chromium native text insertion (trusted by YouTube Polymer components)
-      await this.chatWindow.webContents.insertText(messageText);
-      await new Promise(r => setTimeout(r, 350));
+      await new Promise(r => setTimeout(r, 250));
 
-      // 3. Trigger submit and click Send button
-      const clicked = await this.chatWindow.webContents.executeJavaScript(`
+      // 3. Trigger submit via synthetic Enter + Button click
+      await this.chatWindow.webContents.executeJavaScript(`
         (function() {
           const inputEl = document.querySelector(
+            'yt-live-chat-message-input-renderer #input[contenteditable="true"], ' +
             'div#input[contenteditable="true"], ' +
-            'yt-live-chat-text-input-field-renderer #input, ' +
-            '#input.yt-live-chat-text-input-field-renderer, ' +
-            'yt-live-chat-message-input-renderer #input'
+            '[contenteditable="true"]'
           );
           if (inputEl) {
-            inputEl.dispatchEvent(new Event('input', { bubbles: true }));
-            inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+            const enterDown = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, composed: true, cancelable: true });
+            const enterPress = new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, composed: true, cancelable: true });
+            const enterUp = new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, composed: true, cancelable: true });
+            inputEl.dispatchEvent(enterDown);
+            inputEl.dispatchEvent(enterPress);
+            inputEl.dispatchEvent(enterUp);
           }
 
           const sendBtn = document.querySelector(
@@ -198,22 +229,27 @@ class ChatCapture {
           if (sendBtn) {
             sendBtn.removeAttribute('disabled');
             sendBtn.removeAttribute('aria-disabled');
+            sendBtn.disabled = false;
             sendBtn.click();
-            return true;
           }
-          return false;
+
+          const msgInput = document.querySelector('yt-live-chat-message-input-renderer');
+          if (msgInput && typeof msgInput.onSendButtonClick_ === 'function') {
+            msgInput.onSendButtonClick_();
+          }
         })()
       `);
 
-      // 4. Native Enter fallback
+      // Native Enter fallback
       this.chatWindow.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
       this.chatWindow.webContents.sendInputEvent({ type: 'char', keyCode: '\r' });
       this.chatWindow.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
 
-      websocketServer.logSystem(`[YouTube Chat] Successfully posted to live chat: "${messageText}"`);
+      await new Promise(r => setTimeout(r, 800));
+      websocketServer.logSystem(`[YouTube Broadcaster Chat] Successfully posted to live chat: "${messageText}"`);
       return true;
     } catch (err) {
-      websocketServer.logSystem(`[YouTube Bot] Error sending message: ${err.message}`, 'error');
+      websocketServer.logSystem(`[YouTube Broadcaster Chat] Error sending message: ${err.message}`, 'error');
       return false;
     }
   }

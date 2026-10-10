@@ -682,12 +682,28 @@
       `;
     }
 
+    const recentMessagesCache = new Map();
+
     function appendMessage(item) {
       if (!item) return;
 
-      // Prevent duplicates
+      // Prevent duplicates by ID
       if (item.id && document.getElementById(item.id)) {
         return;
+      }
+
+      // Prevent duplicate messages by content within 6 seconds (e.g. echo or multiple relay sources)
+      const now = Date.now();
+      for (const [key, time] of recentMessagesCache.entries()) {
+        if (now - time > 10000) recentMessagesCache.delete(key);
+      }
+      const rawText = (item.message || '').trim().toLowerCase();
+      if (rawText) {
+        const dedupeKey = `${(item.username || '').toLowerCase()}:${rawText}`;
+        if (recentMessagesCache.has(dedupeKey) && (now - recentMessagesCache.get(dedupeKey) < 6000)) {
+          return;
+        }
+        recentMessagesCache.set(dedupeKey, now);
       }
 
       // Manage DOM size

@@ -34,6 +34,10 @@ const toggleAutostart = document.getElementById('toggle-autostart');
 const toggleAutoStartMonitoring = document.getElementById('toggle-auto-start-monitoring');
 const toggleStartMinimized = document.getElementById('toggle-start-minimized');
 const btnSaveSettings = document.getElementById('btn-save-settings');
+const btnExportSettings = document.getElementById('btn-export-settings');
+const btnImportSettings = document.getElementById('btn-import-settings');
+const btnExportSettingsTop = document.getElementById('btn-export-settings-top');
+const btnImportSettingsTop = document.getElementById('btn-import-settings-top');
 
 // Audio Settings Elements
 const toggleChatSound = document.getElementById('toggle-chat-sound');
@@ -71,6 +75,7 @@ const ytBotLoginGroup = document.getElementById('yt-bot-login-group');
 const btnYtBotLogin = document.getElementById('btn-yt-bot-login');
 const btnYtBotSwitch = document.getElementById('btn-yt-bot-switch');
 const btnYtBotLogout = document.getElementById('btn-yt-bot-logout');
+const btnYtBotPreview = document.getElementById('btn-yt-bot-preview');
 const ytBotStatus = document.getElementById('yt-bot-status');
 
 const selectKickAccountMode = document.getElementById('select-kick-account-mode');
@@ -80,6 +85,11 @@ const btnKickBotLogout = document.getElementById('btn-kick-bot-logout');
 const kickBotStatus = document.getElementById('kick-bot-status');
 const selectPersonaPreset = document.getElementById('select-persona-preset');
 const inputOllamaPrompt = document.getElementById('input-ollama-prompt');
+const inputStreamerKnowledge = document.getElementById('input-streamer-knowledge');
+const inputStreamDescription = document.getElementById('input-stream-description');
+const btnFetchStreamDesc = document.getElementById('btn-fetch-stream-desc');
+const toggleWebSearch = document.getElementById('toggle-web-search');
+const inputIgnoredUsers = document.getElementById('input-ignored-users');
 const selectAutoRespond = document.getElementById('select-auto-respond');
 const inputOllamaCooldown = document.getElementById('input-ollama-cooldown');
 
@@ -233,6 +243,44 @@ function setupEventListeners() {
     }
   });
 
+  // Export Settings
+  const handleExportSettings = async () => {
+    try {
+      await saveOllamaSettings(true);
+      const res = await ipcRenderer.invoke('export-settings');
+      if (res.success && res.filePath) {
+        const fileName = res.filePath.split(/[/\\]/).pop();
+        showToast(`Settings exported to ${fileName}!`);
+      } else if (!res.canceled) {
+        showToast(`Export failed: ${res.error || 'Unknown error'}`);
+      }
+    } catch (e) {
+      showToast(`Export error: ${e.message}`);
+    }
+  };
+
+  if (btnExportSettings) btnExportSettings.addEventListener('click', handleExportSettings);
+  if (btnExportSettingsTop) btnExportSettingsTop.addEventListener('click', handleExportSettings);
+
+  // Import Settings
+  const handleImportSettings = async () => {
+    try {
+      const res = await ipcRenderer.invoke('import-settings');
+      if (res.success) {
+        await loadSettings();
+        await loadOllamaSettings();
+        showToast('Settings successfully imported!');
+      } else if (!res.canceled) {
+        showToast(`Import failed: ${res.error || 'Invalid file format'}`);
+      }
+    } catch (e) {
+      showToast(`Import error: ${e.message}`);
+    }
+  };
+
+  if (btnImportSettings) btnImportSettings.addEventListener('click', handleImportSettings);
+  if (btnImportSettingsTop) btnImportSettingsTop.addEventListener('click', handleImportSettings);
+
   // Open YouTube login popup / channel selector
   btnLogin.addEventListener('click', () => {
     ipcRenderer.send('open-login');
@@ -382,6 +430,13 @@ function setupEventListeners() {
     });
   }
 
+  if (btnYtBotPreview) {
+    btnYtBotPreview.addEventListener('click', async () => {
+      const isVisible = await ipcRenderer.invoke('toggle-youtube-bot-window');
+      showToast(isVisible ? 'YouTube Bot Chat Window opened' : 'YouTube Bot Chat Window hidden');
+    });
+  }
+
   btnYtBotLogout.addEventListener('click', async () => {
     await ipcRenderer.invoke('logout-youtube-bot');
     checkYouTubeBotLoginStatus();
@@ -398,12 +453,33 @@ function setupEventListeners() {
     showToast('Logged out Kick Bot account');
   });
 
+  if (btnFetchStreamDesc) {
+    btnFetchStreamDesc.addEventListener('click', async () => {
+      btnFetchStreamDesc.innerText = '⏳ Syncing...';
+      try {
+        const res = await ipcRenderer.invoke('fetch-stream-description');
+        if (res.success && res.description) {
+          if (inputStreamDescription) inputStreamDescription.value = res.description;
+          showToast('Stream description synced from YouTube!');
+          logActivity(`[Stream Description Synced] "${res.description.substring(0, 80)}..."`);
+          saveOllamaSettings(true);
+        } else {
+          showToast(res.error || 'Failed to fetch stream description');
+        }
+      } catch (err) {
+        showToast(`Sync error: ${err.message}`);
+      } finally {
+        btnFetchStreamDesc.innerText = '🔄 Sync from YouTube';
+      }
+    });
+  }
+
   btnSaveOllama.addEventListener('click', () => {
     saveOllamaSettings();
   });
 
   btnTestPrompt.addEventListener('click', async () => {
-    const prompt = inputTestPrompt.value.trim() || 'Hello AI Bot!';
+    const prompt = inputTestPrompt.value.trim() || 'why play without keyboard?';
     btnTestPrompt.innerText = '⏳ Testing...';
     btnTestPrompt.disabled = true;
 
@@ -412,7 +488,9 @@ function setupEventListeners() {
         prompt,
         url: inputOllamaUrl.value.trim(),
         model: selectOllamaModel.value,
-        systemPrompt: inputOllamaPrompt.value.trim()
+        systemPrompt: inputOllamaPrompt.value.trim(),
+        streamerKnowledge: inputStreamerKnowledge ? inputStreamerKnowledge.value.trim() : '',
+        streamDescription: inputStreamDescription ? inputStreamDescription.value.trim() : ''
       });
 
       if (res.success && res.text) {
@@ -472,8 +550,16 @@ async function loadOllamaSettings() {
 
     if (settings.personaPreset) selectPersonaPreset.value = settings.personaPreset;
     inputOllamaPrompt.value = settings.systemPrompt || '';
-    selectAutoRespond.value = settings.autoRespond || 'mention_only';
-    inputOllamaCooldown.value = settings.cooldownSeconds !== undefined ? settings.cooldownSeconds : 10;
+    if (inputStreamDescription) inputStreamDescription.value = settings.streamDescription || '';
+    if (inputStreamerKnowledge) inputStreamerKnowledge.value = settings.streamerKnowledge || '';
+    if (toggleWebSearch) toggleWebSearch.checked = settings.enableWebSearch !== false;
+    if (inputIgnoredUsers) {
+      inputIgnoredUsers.value = Array.isArray(settings.ignoredUsers)
+        ? settings.ignoredUsers.join(', ')
+        : (settings.ignoredUsers || 'cutie bot, cutiebot, cutiebot.0, nightbot, streamelements');
+    }
+    selectAutoRespond.value = settings.autoRespond || 'questions_and_mentions';
+    inputOllamaCooldown.value = settings.cooldownSeconds !== undefined ? settings.cooldownSeconds : 8;
 
     toggleFirstWords.checked = !!settings.firstWordsEnabled;
     selectFirstWordsMode.value = settings.firstWordsMode || 'template';
@@ -623,8 +709,12 @@ async function saveOllamaSettings(silent = false) {
     kickAccountMode: selectKickAccountMode.value,
     personaPreset: selectPersonaPreset.value,
     systemPrompt: inputOllamaPrompt.value.trim(),
+    streamDescription: inputStreamDescription ? inputStreamDescription.value.trim() : '',
+    streamerKnowledge: inputStreamerKnowledge ? inputStreamerKnowledge.value.trim() : '',
+    enableWebSearch: toggleWebSearch ? toggleWebSearch.checked : true,
+    ignoredUsers: inputIgnoredUsers ? inputIgnoredUsers.value.trim() : 'cutie bot, cutiebot, nightbot, streamelements',
     autoRespond: selectAutoRespond.value,
-    cooldownSeconds: parseInt(inputOllamaCooldown.value, 10) || 10,
+    cooldownSeconds: parseInt(inputOllamaCooldown.value, 10) || 8,
     firstWordsEnabled: toggleFirstWords.checked,
     firstWordsMode: selectFirstWordsMode.value,
     firstWordsTemplate: inputFirstWordsTemplate.value.trim(),

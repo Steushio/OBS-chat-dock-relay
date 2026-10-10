@@ -17,9 +17,15 @@
         <p>STANDALONE LOCAL YOUTUBE CAPTURE ENGINE</p>
       </div>
     </div>
-    <div class="status-indicator">
-      <span id="global-status-dot" class="dot inactive"></span>
-      <span id="global-status-text">Relay Offline</span>
+    <div style="display: flex; align-items: center; gap: 14px;">
+      <div style="display: flex; gap: 8px;">
+        <button id="btn-export-settings-top" class="btn-secondary" style="font-size: 12px; padding: 6px 12px; display: flex; align-items: center; gap: 5px;">📤 Export</button>
+        <button id="btn-import-settings-top" class="btn-secondary" style="font-size: 12px; padding: 6px 12px; display: flex; align-items: center; gap: 5px;">📥 Import</button>
+      </div>
+      <div class="status-indicator">
+        <span id="global-status-dot" class="dot inactive"></span>
+        <span id="global-status-text">Relay Offline</span>
+      </div>
     </div>
   </header>
 
@@ -197,9 +203,10 @@
               <option value="broadcaster">Broadcaster Account (You)</option>
               <option value="bot_account">Dedicated YouTube Bot Account</option>
             </select>
-            <div id="yt-bot-login-group" style="display: none; gap: 4px;">
+            <div id="yt-bot-login-group" style="display: none; gap: 4px; flex-wrap: wrap;">
               <button id="btn-yt-bot-login" class="btn-secondary" style="font-size: 11px; padding: 4px 6px; flex: 1;">🔑 Login YT Bot</button>
               <button id="btn-yt-bot-switch" class="btn-secondary" style="font-size: 11px; padding: 4px 6px; display: none;">🔄 Switch</button>
+              <button id="btn-yt-bot-preview" class="btn-secondary" style="font-size: 11px; padding: 4px 6px; color: var(--accent-cyan);" title="Preview or debug YouTube Live Chat window for the Bot account">👁️ Chat Window</button>
               <button id="btn-yt-bot-logout" class="btn-secondary" style="font-size: 11px; padding: 4px 6px; color: #ef4444;">🚪 Logout</button>
             </div>
           </div>
@@ -236,7 +243,43 @@
               <option value="custom">⚙️ Custom Prompt</option>
             </select>
           </div>
-          <textarea id="input-ollama-prompt" rows="3" style="width: 100%; font-size: 12px; padding: 8px; border-radius: 6px; background: #18181b; color: #fff; border: 1px solid #3f3f46; font-family: inherit;" placeholder="You are a hype live stream gamer chat bot..."></textarea>
+          <textarea id="input-ollama-prompt" rows="2" style="width: 100%; font-size: 12px; padding: 8px; border-radius: 6px; background: #18181b; color: #fff; border: 1px solid #3f3f46; font-family: inherit;" placeholder="You are a hype live stream gamer chat bot..."></textarea>
+        </div>
+
+        <!-- Live Stream Description -->
+        <div class="form-group" style="margin-top: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <label for="input-stream-description" style="margin: 0;">YouTube Live Stream Description</label>
+            <button id="btn-fetch-stream-desc" type="button" class="btn-secondary" style="font-size: 11px; padding: 2px 8px;" title="Fetch live description from YouTube Studio or stream">🔄 Sync from YouTube</button>
+          </div>
+          <textarea id="input-stream-description" rows="3" style="width: 100%; font-size: 12px; padding: 8px; border-radius: 6px; background: #18181b; color: #fff; border: 1px solid #3f3f46; font-family: inherit;" placeholder="Paste your stream description here, or click 'Sync from YouTube' to fetch automatically..."></textarea>
+          <small style="color: var(--text-muted); font-size: 11px;">The bot reads this description to answer questions about health issues, rules, PC specs, and stream info.</small>
+        </div>
+
+        <!-- Streamer FAQ & Knowledge Base -->
+        <div class="form-group" style="margin-top: 8px;">
+          <label for="input-streamer-knowledge" style="margin-bottom: 4px;">Streamer FAQ & Knowledge Base (Health info, playstyle, rules)</label>
+          <textarea id="input-streamer-knowledge" rows="3" style="width: 100%; font-size: 12px; padding: 8px; border-radius: 6px; background: #18181b; color: #fff; border: 1px solid #3f3f46; font-family: inherit;" placeholder="e.g. Streamer plays without a keyboard using special mouse/controls due to health issues..."></textarea>
+          <small style="color: var(--text-muted); font-size: 11px;">Ollama uses this knowledge + your live stream description to answer viewer questions intelligently!</small>
+        </div>
+
+        <!-- Enable Web Search Knowledge -->
+        <div class="switch-wrapper" style="margin-top: 8px; padding: 6px 10px; background: rgba(255, 255, 255, 0.02); border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.05);">
+          <div class="switch-label">
+            <span style="font-size: 12px; font-weight: bold; color: #fff;">🌐 Enable Live Internet Search (DuckDuckGo)</span>
+            <small>Allows the bot to search the web for general knowledge, gaming news, and facts</small>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-web-search" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <!-- Ignored Bots / Usernames -->
+        <div class="form-group" style="margin-top: 8px;">
+          <label for="input-ignored-users">Ignored Bots & Users (Comma-separated)</label>
+          <input type="text" id="input-ignored-users" value="cutie bot, cutiebot, cutiebot.0, nightbot, streamelements" placeholder="cutie bot, cutiebot, nightbot, streamelements">
+          <small style="color: var(--text-muted); font-size: 11px;">The bot will never reply to itself or these bot accounts.</small>
         </div>
 
         <!-- Auto-Respond & Cooldown -->
@@ -244,14 +287,15 @@
           <div class="form-group">
             <label for="select-auto-respond">AI Response Trigger</label>
             <select id="select-auto-respond" class="input-select" style="width: 100%; padding: 8px; border-radius: 6px; background: #18181b; color: #fff; border: 1px solid #3f3f46;">
-              <option value="off">Off (Commands Only)</option>
-              <option value="mention_only" selected>Mention (@Bot or !ai)</option>
+              <option value="questions_and_mentions" selected>Questions & Mentions (Recommended)</option>
+              <option value="mention_only">Mentions Only (@Bot or !ai)</option>
               <option value="all_chat">All Chat Messages</option>
+              <option value="off">Off (Commands Only)</option>
             </select>
           </div>
           <div class="form-group">
             <label for="input-ollama-cooldown">Cooldown (Sec)</label>
-            <input type="number" id="input-ollama-cooldown" value="10" min="2" max="300">
+            <input type="number" id="input-ollama-cooldown" value="8" min="2" max="300">
           </div>
         </div>
 
@@ -512,10 +556,18 @@
       </div>
 
       <!-- Save & Apply Settings Action at Bottom of App -->
-      <div style="margin-top: 4px;">
+      <div style="margin-top: 4px; display: flex; flex-direction: column; gap: 10px;">
         <button id="btn-save-settings" class="btn-primary" style="width: 100%; padding: 14px 20px; font-size: 15px; font-weight: 700; border-radius: 12px; box-shadow: 0 4px 20px rgba(168, 85, 247, 0.35);">
           💾 Save & Apply Settings
         </button>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <button id="btn-export-settings" class="btn-secondary" style="padding: 10px 14px; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            📤 Export Settings (.json)
+          </button>
+          <button id="btn-import-settings" class="btn-secondary" style="padding: 10px 14px; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            📥 Import Settings (.json)
+          </button>
+        </div>
       </div>
 
     </div>

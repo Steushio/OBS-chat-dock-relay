@@ -69,10 +69,12 @@ class StreamManager {
     if (url.includes('live_events/get_live_control_data')) {
       const videoId = data?.videoContext?.videoData?.videoId;
       const title = data?.videoContext?.videoData?.title;
+      const description = data?.videoContext?.videoData?.description?.newContent || data?.videoContext?.videoData?.description;
       if (videoId) {
         this.addOrUpdateStream({
           videoId,
           title: title || 'Studio Livestream',
+          description: typeof description === 'string' ? description : (description?.newContent || ''),
           liveState: 'live',
           source: 'api_live_control'
         });
@@ -84,10 +86,12 @@ class StreamManager {
     if (url.includes('metadata/get_video_metadata')) {
       const videoId = data?.videoData?.videoId;
       const title = data?.videoData?.title;
+      const description = data?.videoData?.description?.newContent || data?.videoData?.description;
       if (videoId) {
         this.addOrUpdateStream({
           videoId,
           title: title || 'Studio Video',
+          description: typeof description === 'string' ? description : (description?.newContent || ''),
           liveState: 'live',
           source: 'api_metadata'
         });
@@ -103,6 +107,7 @@ class StreamManager {
       }
       const videoId = broadcast?.videoId || data?.videoId;
       const title = broadcast?.title || data?.title;
+      const description = broadcast?.description || data?.description || broadcast?.snippet?.description || '';
       
       let liveState = 'unknown';
       const status = broadcast?.status || broadcast?.liveBroadcastDetails?.status || broadcast?.lifeCycleStatus || data?.status;
@@ -123,6 +128,7 @@ class StreamManager {
         this.addOrUpdateStream({
           videoId,
           title: title || 'Studio Broadcast',
+          description: typeof description === 'string' ? description : (description?.newContent || ''),
           liveState,
           concurrentViewers,
           source: 'api_broadcast_status'
@@ -539,6 +545,40 @@ class StreamManager {
       this.monitorWindow.webContents.reload();
     }
     this.startReloadSync();
+  }
+
+  async fetchYouTubeVideoDetails(videoId) {
+    if (!videoId) return null;
+    try {
+      const res = await fetch('https://www.youtube.com/youtubei/v1/player', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          videoId: videoId,
+          context: {
+            client: {
+              clientName: 'WEB',
+              clientVersion: '2.20240101.00.00',
+              hl: 'en'
+            }
+          }
+        })
+      });
+      if (res.ok) {
+        const json = await res.json();
+        const details = json?.videoDetails;
+        if (details) {
+          return {
+            title: details.title || '',
+            description: details.shortDescription || '',
+            author: details.author || ''
+          };
+        }
+      }
+    } catch (e) {
+      websocketServer.logSystem(`[Monitor] Error fetching video details: ${e.message}`, 'debug');
+    }
+    return null;
   }
 
   getActiveStream() {
