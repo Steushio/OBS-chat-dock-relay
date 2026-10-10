@@ -69,8 +69,8 @@ class ChatCapture {
     }
 
     this.chatWindow = new BrowserWindow({
-      width: 100,
-      height: 100,
+      width: 1024,
+      height: 768,
       show: false, // Background window
       skipTaskbar: true,
       frame: false,
@@ -81,7 +81,6 @@ class ChatCapture {
         contextIsolation: true,
         sandbox: true,
         backgroundThrottling: false,
-        paintWhenInitiallyHidden: false,
         images: false,
         webgl: false,
         enableWebSQL: false
@@ -135,32 +134,84 @@ class ChatCapture {
     }
 
     try {
-      const success = await this.chatWindow.webContents.executeJavaScript(`
-        (async function(text) {
-          try {
-            const inputEl = document.querySelector('#input[contenteditable="true"], yt-live-chat-message-input-renderer #input');
-            if (!inputEl) return false;
-            
-            inputEl.focus();
-            inputEl.innerText = text;
-            inputEl.dispatchEvent(new InputEvent('input', { bubbles: true }));
+      // 1. Focus input and prepare contenteditable container
+      const prep = await this.chatWindow.webContents.executeJavaScript(`
+        (function() {
+          const inputEl = document.querySelector(
+            'div#input[contenteditable="true"], ' +
+            'yt-live-chat-text-input-field-renderer #input[contenteditable="true"], ' +
+            '#input.yt-live-chat-text-input-field-renderer, ' +
+            'yt-live-chat-message-input-renderer #input, ' +
+            '[contenteditable="true"]'
+          );
 
-            await new Promise(r => setTimeout(r, 200));
-
-            const sendBtn = document.querySelector('#send-button button, yt-live-chat-message-input-renderer #send-button button');
-            if (sendBtn && !sendBtn.disabled) {
-              sendBtn.click();
-              return true;
-            }
-
-            inputEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
-            return true;
-          } catch (e) {
-            return false;
+          if (!inputEl) {
+            const signIn = document.querySelector('#sign-in-button, a[href*="accounts.google.com"], a[href*="signin"]');
+            if (signIn) return { ok: false, error: 'Broadcaster account is not signed in to YouTube chat' };
+            return { ok: false, error: 'Chat input element not found in DOM' };
           }
-        })(${JSON.stringify(messageText)})
+
+          inputEl.focus();
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          const range = document.createRange();
+          range.selectNodeContents(inputEl);
+          sel.addRange(range);
+          document.execCommand('delete', false, null);
+
+          return { ok: true };
+        })()
       `);
-      return success;
+
+      if (!prep || !prep.ok) {
+        websocketServer.logSystem(`[YouTube Chat] Cannot send: ${prep?.error || 'Input element not found'}`, 'warning');
+        return false;
+      }
+
+      // 2. Use Chromium native text insertion (trusted by YouTube Polymer components)
+      await this.chatWindow.webContents.insertText(messageText);
+      await new Promise(r => setTimeout(r, 350));
+
+      // 3. Trigger submit and click Send button
+      const clicked = await this.chatWindow.webContents.executeJavaScript(`
+        (function() {
+          const inputEl = document.querySelector(
+            'div#input[contenteditable="true"], ' +
+            'yt-live-chat-text-input-field-renderer #input, ' +
+            '#input.yt-live-chat-text-input-field-renderer, ' +
+            'yt-live-chat-message-input-renderer #input'
+          );
+          if (inputEl) {
+            inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+            inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+
+          const sendBtn = document.querySelector(
+            '#send-button button, ' +
+            'yt-live-chat-message-input-renderer #send-button button, ' +
+            '#send-button yt-button-shape button, ' +
+            '#send-button yt-icon-button button, ' +
+            'yt-button-renderer#send-button button, ' +
+            '#send-button'
+          );
+
+          if (sendBtn) {
+            sendBtn.removeAttribute('disabled');
+            sendBtn.removeAttribute('aria-disabled');
+            sendBtn.click();
+            return true;
+          }
+          return false;
+        })()
+      `);
+
+      // 4. Native Enter fallback
+      this.chatWindow.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
+      this.chatWindow.webContents.sendInputEvent({ type: 'char', keyCode: '\r' });
+      this.chatWindow.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
+
+      websocketServer.logSystem(`[YouTube Chat] Successfully posted to live chat: "${messageText}"`);
+      return true;
     } catch (err) {
       websocketServer.logSystem(`[YouTube Bot] Error sending message: ${err.message}`, 'error');
       return false;

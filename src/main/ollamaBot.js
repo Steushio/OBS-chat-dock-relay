@@ -4,6 +4,7 @@ const websocketServer = require('./websocketServer');
 const chatCapture = require('./chatCapture');
 const kickCapture = require('./kickCapture');
 const botAccountSession = require('./botAccountSession');
+const streamManager = require('./streamManager');
 
 class OllamaBot {
   constructor() {
@@ -262,16 +263,26 @@ Chat Reply:`;
     });
 
     if (platform === 'youtube' && this.settings.enableYouTube) {
+      const activeVideoId = chatCapture.currentVideoId || (streamManager && streamManager.activeStream ? streamManager.activeStream.videoId : null) || configStore.get('lastVideoId');
+      
       if (this.settings.youtubeAccountMode === 'bot_account') {
-        botAccountSession.sendYouTubeBotMessage(chatCapture.currentVideoId, messageText);
+        const ok = await botAccountSession.sendYouTubeBotMessage(activeVideoId, messageText);
+        if (!ok) {
+          websocketServer.logSystem('[YouTube Bot] Dedicated Bot account failed to post. Trying broadcaster fallback...', 'warning');
+          await chatCapture.sendMessage(messageText);
+        }
       } else {
-        chatCapture.sendMessage(messageText);
+        await chatCapture.sendMessage(messageText);
       }
     } else if (platform === 'kick' && this.settings.enableKick) {
       if (this.settings.kickAccountMode === 'bot_account') {
-        botAccountSession.sendKickBotMessage(kickCapture.chatroomId, kickCapture.username, messageText);
+        const ok = await botAccountSession.sendKickBotMessage(kickCapture.chatroomId, kickCapture.username, messageText);
+        if (!ok) {
+          websocketServer.logSystem('[Kick Bot] Dedicated Bot account failed to post. Trying broadcaster fallback...', 'warning');
+          await kickCapture.sendMessage(messageText);
+        }
       } else {
-        kickCapture.sendMessage(messageText);
+        await kickCapture.sendMessage(messageText);
       }
     }
   }
