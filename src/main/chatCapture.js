@@ -3,8 +3,6 @@ const path = require('path');
 const websocketServer = require('./websocketServer');
 const youtubeSession = require('./youtubeSession');
 
-const ollamaBot = require('./ollamaBot');
-
 class ChatCapture {
   constructor() {
     this.chatWindow = null;
@@ -26,7 +24,12 @@ class ChatCapture {
         // Send normal chat message to ws clients
         websocketServer.broadcast('chat', chatData);
         // Forward to Ollama Bot
-        ollamaBot.handleChatMessage(chatData);
+        try {
+          const ollamaBot = require('./ollamaBot');
+          if (ollamaBot && typeof ollamaBot.handleChatMessage === 'function') {
+            ollamaBot.handleChatMessage(chatData);
+          }
+        } catch (e) {}
       } else if (chatData.type === 'poll' || chatData.type === 'poll_ended') {
         websocketServer.broadcast('poll', chatData);
         websocketServer.broadcast('chat', chatData);

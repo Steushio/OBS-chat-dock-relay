@@ -100,19 +100,30 @@
         </div>
       </div>
 
-      <!-- Kick Scanner Card -->
+      <!-- Kick Authentication & Scanner Card -->
       <div class="card">
         <div class="card-title">
           <span style="font-size: 20px;">🟢</span>
-          <h2 class="title-font">Kick Scanner</h2>
+          <h2 class="title-font">Kick Authentication & Scanner</h2>
         </div>
         <p style="font-size: 13px; color: var(--text-muted); margin-top: -6px;">
-          Directly relay public Kick chat and alerts without login.
+          Persistently authenticate with Kick as Broadcaster. No API keys needed.
         </p>
 
-        <div class="form-group">
-          <label for="input-kick-username">Kick Channel Username</label>
-          <input type="text" id="input-kick-username" placeholder="e.g. xqc">
+        <div class="session-status">
+          <div class="session-info">
+            <span class="session-label">Broadcaster Status</span>
+            <span id="kick-session-status-text" class="session-value" style="color: #ef4444;">Not Authenticated</span>
+          </div>
+          <div style="display: flex; gap: 6px;">
+            <button id="btn-kick-login" class="btn-primary">Connect Account</button>
+            <button id="btn-kick-logout" class="btn-secondary" style="display: none; color: #ef4444;">Disconnect</button>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top: 14px;">
+          <label for="input-kick-username">Kick Channel Username <span id="kick-channel-badge" style="font-size: 11px; color: #22c55e; margin-left: 6px; display: none;">🔒 Account-Linked</span></label>
+          <input type="text" id="input-kick-username" placeholder="e.g. steushio">
         </div>
 
         <div class="switch-wrapper">
@@ -224,9 +235,10 @@
               <option value="broadcaster">Broadcaster Account (You)</option>
               <option value="bot_account">Dedicated Kick Bot Account</option>
             </select>
-            <div id="kick-bot-login-group" style="display: none; gap: 6px;">
-              <button id="btn-kick-bot-login" class="btn-secondary" style="font-size: 11px; padding: 4px 8px; flex: 1;">🔑 Login Kick Bot</button>
-              <button id="btn-kick-bot-logout" class="btn-secondary" style="font-size: 11px; padding: 4px 8px; color: #ef4444;">🚪 Logout</button>
+            <div id="kick-bot-login-group" style="display: none; gap: 4px; flex-wrap: wrap;">
+              <button id="btn-kick-bot-login" class="btn-secondary" style="font-size: 11px; padding: 4px 6px; flex: 1;">🔑 Login Kick Bot</button>
+              <button id="btn-kick-bot-preview" class="btn-secondary" style="font-size: 11px; padding: 4px 6px; color: var(--accent-cyan);" title="Preview or debug Kick Live Chat window for the Bot account">👁️ Chat Window</button>
+              <button id="btn-kick-bot-logout" class="btn-secondary" style="font-size: 11px; padding: 4px 6px; color: #ef4444;">🚪 Logout</button>
             </div>
           </div>
         </div>

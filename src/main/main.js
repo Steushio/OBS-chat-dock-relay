@@ -25,6 +25,7 @@ const youtubeSession = require('./youtubeSession');
 const streamManager = require('./streamManager');
 const chatCapture = require('./chatCapture');
 const kickCapture = require('./kickCapture');
+const kickSession = require('./kickSession');
 const botAccountSession = require('./botAccountSession');
 const ollamaBot = require('./ollamaBot');
 
@@ -92,10 +93,17 @@ async function startApp() {
     }
   }
 
-  // Auto start Kick capture if enabled and username is provided
-  if (configStore.get('kickEnabled') && configStore.get('kickUsername')) {
-    websocketServer.logSystem(`[Kick] Auto-starting background chat monitor for: ${configStore.get('kickUsername')}...`);
-    kickCapture.start(configStore.get('kickUsername'));
+  // Auto start Kick capture if enabled
+  const kickUser = configStore.get('kickUsername') || 'steushio';
+  if (configStore.get('kickEnabled')) {
+    websocketServer.logSystem(`[Kick] Auto-starting background chat monitor for: ${kickUser}...`);
+    kickCapture.start(kickUser);
+  } else {
+    try {
+      const botAccountSession = require('./botAccountSession');
+      botAccountSession.prewarmKickBotChat(kickUser);
+      botAccountSession.prewarmKickBroadcasterChat(kickUser);
+    } catch (e) {}
   }
 }
 
@@ -530,6 +538,21 @@ function setupIpcHandlers() {
     streamManager.clearState();
     chatCapture.stopCapture();
     return await youtubeSession.logout();
+  });
+
+  // Kick Broadcaster Login Status Probe
+  ipcMain.handle('check-kick-login', async () => {
+    return await kickSession.checkLoginStatus();
+  });
+
+  // Open Kick Broadcaster login window
+  ipcMain.on('open-kick-login', () => {
+    kickSession.showLoginWindow(mainWindow);
+  });
+
+  // Logout from Kick Broadcaster session
+  ipcMain.handle('logout-kick', async () => {
+    return await kickSession.logout();
   });
 
   // Monitor toggle from checkbox

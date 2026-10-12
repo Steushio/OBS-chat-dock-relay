@@ -23,15 +23,16 @@ class WebSearchHelper {
 
   // Check if a viewer message is asking a question suitable for internet search
   isSearchableQuery(message) {
-    if (!message || message.length < 4) return false;
+    if (!message || message.trim().length < 3) return false;
     const lower = message.toLowerCase().trim();
 
     // Check for question or search patterns
     const searchPatterns = [
-      /[?]$/,
-      /^(who|what|when|where|why|how|which|whose)\b/i,
-      /^(is|are|was|were|did|does|do|will|can|could|should|would)\b/i,
-      /\b(release date|news|score|weather|price|definition|meaning of|worth|cost)\b/i,
+      /[?]/,
+      /^(who|who\'s|whos|what|what\'s|whats|wats|when|when\'s|whens|where|where\'s|wheres|why|how|how\'s|hows|which|whose)\b/i,
+      /^(is|isn\'t|isnt|are|aren\'t|arent|was|were|did|didn\'t|didnt|does|doesn\'t|doesnt|do|will|won\'t|wont|can|can\'t|cant|could|should|would)\b/i,
+      /\b(release date|news|score|weather|price|definition|meaning of|worth|cost|ceo|net worth|founder|owner|height|age|president|capital|population)\b/i,
+      /\b(who is|who was|what is|what was|where is|where was|how to|how do|tell me|explain)\b/i,
       /^(search|google)\s+for\b/i
     ];
 

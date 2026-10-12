@@ -1,4 +1,4 @@
-const { BrowserWindow, session, ipcMain } = require('electron');
+const { BrowserWindow, session, ipcMain, net } = require('electron');
 const path = require('path');
 const websocketServer = require('./websocketServer');
 
@@ -6,6 +6,7 @@ class BotAccountSession {
   constructor() {
     this.ytPartition = 'persist:youtube_bot';
     this.kickPartition = 'persist:kick_bot';
+    this.kickBroadcasterPartition = 'persist:kick';
 
     this.ytLoginWindow = null;
     this.kickLoginWindow = null;
@@ -14,6 +15,7 @@ class BotAccountSession {
     this.ytBotVideoId = null;
 
     this.kickBotWindow = null;
+    this.kickBroadcasterWindow = null;
     this.isQuitting = false;
 
     this.setupIpc();
@@ -40,6 +42,16 @@ class BotAccountSession {
 
     ipcMain.handle('toggle-youtube-bot-window', () => {
       return this.toggleYouTubeBotWindow();
+    });
+
+    ipcMain.handle('toggle-kick-bot-window', () => {
+      const configStore = require('./configStore');
+      return this.toggleKickBotWindow(configStore.get('kickUsername') || 'steushio');
+    });
+
+    ipcMain.handle('toggle-kick-broadcaster-window', () => {
+      const configStore = require('./configStore');
+      return this.toggleKickBroadcasterWindow(configStore.get('kickUsername') || 'steushio');
     });
 
     ipcMain.handle('logout-youtube-bot', async () => {
@@ -304,6 +316,13 @@ class BotAccountSession {
   }
 
   async sendYouTubeBotMessage(videoId, messageText) {
+    if (!this._ytSendQueue) this._ytSendQueue = Promise.resolve();
+    const run = () => this._executeSendYouTubeBotMessage(videoId, messageText);
+    this._ytSendQueue = this._ytSendQueue.then(run, run);
+    return await this._ytSendQueue;
+  }
+
+  async _executeSendYouTubeBotMessage(videoId, messageText) {
     if (!videoId) {
       websocketServer.logSystem('[YouTube Bot Account] Cannot send message: No active video ID found.', 'warning');
       return false;
@@ -611,53 +630,505 @@ class BotAccountSession {
     });
   }
 
-  async sendKickBotMessage(chatroomId, username, messageText) {
-    if (!this.kickBotWindow || this.kickBotWindow.isDestroyed()) {
-      this.kickBotWindow = new BrowserWindow({
-        width: 1024,
-        height: 768,
-        show: false,
-        skipTaskbar: true,
-        frame: false,
-        webPreferences: {
-          partition: this.kickPartition,
-          nodeIntegration: false,
-          contextIsolation: true,
-          sandbox: true,
-          backgroundThrottling: false
-        }
-      });
-      this.kickBotWindow.setMenu(null);
-      this.kickBotWindow.webContents.setAudioMuted(true);
-      this.kickBotWindow.loadURL(`https://kick.com/${username || 'kick'}`);
-      await new Promise(r => setTimeout(r, 4000));
+  // Prewarm background Kick chat window (supports 'broadcaster' and 'bot_account')
+  prewarmKickChatWindow(mode, username) {
+    if (!username) {
+      const configStore = require('./configStore');
+      username = configStore.get('kickUsername') || 'steushio';
+    }
+    const popoutUrl = `https://kick.com/popout/${username}/chat`;
+    const isBroadcaster = mode === 'broadcaster';
+    const partition = isBroadcaster ? this.kickBroadcasterPartition : this.kickPartition;
+    const windowProp = isBroadcaster ? 'kickBroadcasterWindow' : 'kickBotWindow';
+    const tag = isBroadcaster ? '[Kick Broadcaster]' : '[Kick Bot]';
+    const title = isBroadcaster ? 'Kick Broadcaster Live Chat Preview' : 'Kick Bot Live Chat Preview';
+
+    if (this[windowProp] && !this[windowProp].isDestroyed()) {
+      const currentUrl = this[windowProp].webContents.getURL() || '';
+      if (!currentUrl.includes(`/popout/${username}/chat`)) {
+        this[windowProp].loadURL(popoutUrl);
+      }
+      return this[windowProp];
     }
 
-    try {
-      return await this.kickBotWindow.webContents.executeJavaScript(`
-        (async function(text, chatroomId) {
-          try {
-            if (chatroomId) {
-              const res = await fetch('https://kick.com/api/v2/messages/send/' + chatroomId, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Accept': 'application/json'
-                },
-                body: JSON.stringify({ content: text, type: 'message' })
+    websocketServer.logSystem(`${tag} Prewarming background chat session for: ${username}...`);
+    const win = new BrowserWindow({
+      width: 440,
+      height: 720,
+      show: false,
+      skipTaskbar: true,
+      frame: true,
+      title: title,
+      webPreferences: {
+        partition: partition,
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+        backgroundThrottling: false,
+        paintWhenInitiallyHidden: true
+      }
+    });
+
+    win.setMenu(null);
+    win.webContents.setAudioMuted(true);
+
+    const chromeUA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+    win.webContents.setUserAgent(chromeUA);
+
+    win.on('close', (e) => {
+      if (!this.isQuitting) {
+        e.preventDefault();
+        win.hide();
+        websocketServer.logSystem(`${tag} Chat preview window hidden to background.`);
+      }
+    });
+
+    win.webContents.on('did-finish-load', async () => {
+      websocketServer.logSystem(`${tag} Background chat session page loaded for ${username}`);
+      try {
+        const check = await win.webContents.executeJavaScript(`
+          (function() {
+            const input = document.querySelector(
+              '#message-input, [data-chat-input="true"], div#message-input[contenteditable="true"], ' +
+              'div[contenteditable="true"][role="textbox"], div[contenteditable="true"], ' +
+              '.chat-input [contenteditable="true"], [data-testid="chat-input"], ' +
+              'textarea[placeholder*="chat" i], textarea[placeholder*="message" i]'
+            );
+            return { hasInput: !!input };
+          })()
+        `);
+        if (check?.hasInput) {
+          websocketServer.logSystem(`${tag} Live chat input is active and ready to post messages for ${username}.`);
+        }
+      } catch (e) {}
+    });
+
+    win.webContents.on('did-fail-load', (e, code, desc) => {
+      websocketServer.logSystem(`${tag} Failed to load chat page: ${desc}`, 'warning');
+    });
+
+    win.loadURL(popoutUrl);
+    this[windowProp] = win;
+    return win;
+  }
+
+  prewarmKickBotChat(username) {
+    return this.prewarmKickChatWindow('bot_account', username);
+  }
+
+  prewarmKickBroadcasterChat(username) {
+    return this.prewarmKickChatWindow('broadcaster', username);
+  }
+
+  // Toggle visibility of Kick Bot chat window
+  toggleKickBotWindow(username) {
+    const win = this.prewarmKickChatWindow('bot_account', username);
+    if (win.isVisible()) {
+      win.hide();
+      return false;
+    } else {
+      win.show();
+      win.focus();
+      return true;
+    }
+  }
+
+  // Toggle visibility of Kick Broadcaster chat window
+  toggleKickBroadcasterWindow(username) {
+    const win = this.prewarmKickChatWindow('broadcaster', username);
+    if (win.isVisible()) {
+      win.hide();
+      return false;
+    } else {
+      win.show();
+      win.focus();
+      return true;
+    }
+  }
+
+  // Actively wait for Kick chat input to be fully hydrated in DOM
+  async waitForKickChatInputReady(targetWindow, maxWaitMs = 15000, tag = '[Kick]') {
+    if (!targetWindow || targetWindow.isDestroyed()) return { ok: false, error: 'Chat window is not active' };
+
+    const startTime = Date.now();
+    let lastStatus = 'loading';
+
+    while (Date.now() - startTime < maxWaitMs) {
+      if (targetWindow.isDestroyed()) return { ok: false, error: 'Chat window closed unexpectedly' };
+
+      try {
+        const state = await targetWindow.webContents.executeJavaScript(`
+          (function() {
+            // Dismiss rules or cookie modal if blocking chat
+            try {
+              const buttons = Array.from(document.querySelectorAll('button, a'));
+              const acceptBtn = buttons.find(b => {
+                const t = (b.textContent || '').trim().toLowerCase();
+                return (
+                  t === 'accept' || 
+                  t === 'i understand' || 
+                  t === 'got it' || 
+                  t === 'accept rules' ||
+                  t === 'agree' ||
+                  t === 'accept all'
+                );
               });
-              if (res.ok) return true;
-            }
-            return false;
-          } catch (e) {
-            return false;
+              if (acceptBtn) acceptBtn.click();
+            } catch (e) {}
+
+            const input = document.querySelector(
+              '#message-input, [data-chat-input="true"], div#message-input[contenteditable="true"], ' +
+              'div[contenteditable="true"][role="textbox"], div[contenteditable="true"], ' +
+              '.chat-input [contenteditable="true"], [data-testid="chat-input"], ' +
+              'textarea[placeholder*="chat" i], textarea[placeholder*="message" i]'
+            );
+
+            if (input) return { status: 'ready' };
+
+            const hasLoginBtn = Array.from(document.querySelectorAll('a, button')).some(el => 
+              el.textContent && el.textContent.trim().toLowerCase() === 'log in' && el.offsetParent !== null
+            );
+            if (hasLoginBtn) return { status: 'not_logged_in' };
+
+            return { status: 'loading' };
+          })()
+        `);
+
+        if (state && state.status === 'ready') return { ok: true };
+        if (state) lastStatus = state.status;
+      } catch (e) {}
+
+      await new Promise(r => setTimeout(r, 400));
+    }
+
+    if (lastStatus === 'not_logged_in') {
+      return { ok: false, error: `${tag} Account is not logged in. Please authenticate on the Dashboard!` };
+    }
+
+    return { ok: false, error: `Timed out waiting for Kick chat input field to load (took >15s)` };
+  }
+
+  async resolveKickChatroomId(win, username) {
+    const kickCapture = require('./kickCapture');
+    if (kickCapture.chatroomId) return kickCapture.chatroomId;
+
+    const configStore = require('./configStore');
+    const cachedCid = configStore.get('kickChatroomId');
+    if (cachedCid) {
+      kickCapture.chatroomId = cachedCid;
+      return cachedCid;
+    }
+
+    if (!username) {
+      username = configStore.get('kickUsername') || 'steushio';
+    }
+
+    if (username.toLowerCase() === 'steushio') {
+      kickCapture.chatroomId = '33438685';
+      return '33438685';
+    }
+
+    if (win && !win.isDestroyed()) {
+      try {
+        const cid = await win.webContents.executeJavaScript(`
+          (async function() {
+            try {
+              if (window.__NEXT_DATA__?.props?.pageProps?.channel?.chatroom?.id) {
+                return window.__NEXT_DATA__.props.pageProps.channel.chatroom.id;
+              }
+              if (window.__NEXT_DATA__?.props?.pageProps?.chatroom?.id) {
+                return window.__NEXT_DATA__.props.pageProps.chatroom.id;
+              }
+              const el = document.querySelector('[data-chatroom-id]');
+              if (el) return el.getAttribute('data-chatroom-id');
+
+              const res = await fetch('https://kick.com/api/v2/channels/' + ${JSON.stringify(username)});
+              if (res.ok) {
+                const data = await res.json();
+                return data?.chatroom?.id || null;
+              }
+            } catch (e) {}
+            return null;
+          })()
+        `);
+        if (cid) {
+          kickCapture.chatroomId = cid;
+          configStore.set('kickChatroomId', cid);
+          return cid;
+        }
+      } catch (e) {}
+    }
+
+    return null;
+  }
+
+  clearKickChatInput(win) {
+    if (!win || win.isDestroyed()) return;
+    try {
+      win.webContents.executeJavaScript(`
+        (function() {
+          const inputEl = document.querySelector(
+            '#message-input, [data-chat-input="true"], div#message-input[contenteditable="true"], ' +
+            'div[contenteditable="true"][role="textbox"], div[contenteditable="true"], ' +
+            '.chat-input [contenteditable="true"], [data-testid="chat-input"], ' +
+            'textarea[placeholder*="chat" i], textarea[placeholder*="message" i], textarea'
+          );
+          if (inputEl) {
+            inputEl.textContent = '';
+            if (inputEl.value) inputEl.value = '';
           }
-        })(${JSON.stringify(messageText)}, ${JSON.stringify(chatroomId)})
-      `);
+        })()
+      `).catch(() => {});
+    } catch (e) {}
+  }
+
+  async _executeSendKickMessage(mode, chatroomId, username, messageText) {
+    if (!username) {
+      const configStore = require('./configStore');
+      username = configStore.get('kickUsername') || 'steushio';
+    }
+    const isBroadcaster = mode === 'broadcaster';
+    const tag = isBroadcaster ? '[Kick Broadcaster]' : '[Kick Bot]';
+    const partition = isBroadcaster ? this.kickBroadcasterPartition : this.kickPartition;
+    const win = this.prewarmKickChatWindow(mode, username);
+
+    // 1. Ensure the Chromium window has finished loading before executing scripts
+    if (win.webContents.isLoading()) {
+      await new Promise(r => {
+        let done = false;
+        const finish = () => { if (!done) { done = true; r(); } };
+        win.webContents.once('did-finish-load', finish);
+        win.webContents.once('did-fail-load', finish);
+        setTimeout(finish, 15000);
+      });
+    }
+    if (win.webContents.isLoading()) {
+      let checks = 0;
+      while (win.webContents.isLoading() && checks < 8) {
+        await new Promise(r => setTimeout(r, 500));
+        checks++;
+      }
+    }
+
+    const kickCapture = require('./kickCapture');
+    const targetChatroomId = chatroomId || kickCapture.chatroomId || (username.toLowerCase() === 'steushio' ? '33438685' : null) || await this.resolveKickChatroomId(win, username) || '33438685';
+
+    try {
+      // 2. Retrieve session_token & XSRF token from partition cookies
+      const s = session.fromPartition(partition);
+      const cookies = await s.cookies.get({});
+      const sessionTokenCookie = cookies.find(c => c.name === 'session_token' || c.name === 'token');
+      const token = sessionTokenCookie ? sessionTokenCookie.value : '';
+      const xsrfCookie = cookies.find(c => c.name === 'XSRF-TOKEN');
+      const xsrfToken = xsrfCookie ? decodeURIComponent(xsrfCookie.value) : '';
+
+      // 3. PRIMARY STRATEGY: Real Chromium webContents fetch
+      // Executed inside the Chromium window context, passing Cloudflare WAF and returning HTTP 200 OK.
+      if (token && targetChatroomId && win && !win.isDestroyed()) {
+        let apiRes = null;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            if (win.webContents.isLoading()) {
+              await new Promise(r => setTimeout(r, 1200));
+              continue;
+            }
+            apiRes = await win.webContents.executeJavaScript(`
+              (async function(chatroomId, token, xsrf, text) {
+                try {
+                  const headers = {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'Authorization': 'Bearer ' + token
+                  };
+                  if (xsrf) headers['X-XSRF-TOKEN'] = xsrf;
+
+                  const res = await fetch('https://kick.com/api/v2/messages/send/' + chatroomId, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: headers,
+                    body: JSON.stringify({ content: text, type: 'message' })
+                  });
+
+                  const textResp = await res.text();
+                  let jsonResp = null;
+                  try { jsonResp = JSON.parse(textResp); } catch(e) {}
+
+                  return {
+                    ok: res.ok,
+                    status: res.status,
+                    data: jsonResp,
+                    error: !res.ok ? textResp.substring(0, 150) : null
+                  };
+                } catch (e) {
+                  return { ok: false, status: 0, error: e.message };
+                }
+              })(${JSON.stringify(targetChatroomId)}, ${JSON.stringify(token)}, ${JSON.stringify(xsrfToken)}, ${JSON.stringify(messageText)})
+            `);
+            break;
+          } catch (navErr) {
+            if (navErr && navErr.message && navErr.message.includes('navigation was in progress')) {
+              websocketServer.logSystem(`${tag} Navigation in progress on attempt ${attempt}/3, retrying in 1.5s...`);
+              await new Promise(r => setTimeout(r, 1500));
+            } else {
+              websocketServer.logSystem(`${tag} Script execution issue on attempt ${attempt}/3: ${navErr.message}`, 'warning');
+              await new Promise(r => setTimeout(r, 1000));
+            }
+          }
+        }
+
+        if (apiRes && apiRes.ok) {
+          websocketServer.logSystem(`${tag} Successfully posted to live chat: "${messageText}"`);
+          this.clearKickChatInput(win);
+          return true;
+        } else if (apiRes && apiRes.status) {
+          websocketServer.logSystem(`${tag} API send returned HTTP ${apiRes.status}: ${apiRes.error || 'Failed'}`, 'warning');
+        }
+      }
+
+      // 3. TERTIARY STRATEGY: DOM Automation Fallback
+      const readyCheck = await this.waitForKickChatInputReady(win, 6000, tag);
+      if (readyCheck.ok) {
+        win.webContents.focus();
+
+        const prep = await win.webContents.executeJavaScript(`
+          (function(text) {
+            const inputEl = document.querySelector(
+              '#message-input, [data-chat-input="true"], div#message-input[contenteditable="true"], ' +
+              'div[contenteditable="true"][role="textbox"], div[contenteditable="true"], ' +
+              '.chat-input [contenteditable="true"], [data-testid="chat-input"], ' +
+              'textarea[placeholder*="chat" i], textarea[placeholder*="message" i], textarea'
+            );
+
+            if (!inputEl) return { ok: false, error: 'Chat input element not found' };
+
+            inputEl.focus();
+
+            try {
+              const sel = window.getSelection();
+              sel.removeAllRanges();
+              const range = document.createRange();
+              range.selectNodeContents(inputEl);
+              sel.addRange(range);
+              document.execCommand('delete', false, null);
+            } catch (e) {}
+
+            inputEl.textContent = '';
+            if (inputEl.value) inputEl.value = '';
+
+            if (inputEl.isContentEditable) {
+              document.execCommand('insertText', false, text);
+              if ((inputEl.textContent || inputEl.innerText || '').trim() !== text.trim()) {
+                inputEl.textContent = text;
+              }
+              inputEl.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, composed: true, inputType: 'insertText', data: text }));
+              inputEl.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertText', data: text }));
+            } else {
+              inputEl.value = text;
+              inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+            inputEl.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+
+            // Dismiss mention dropdown with Escape
+            const escDown = new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true });
+            inputEl.dispatchEvent(escDown);
+
+            // Press Enter
+            const enterDown = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true });
+            const enterPress = new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true });
+            const enterUp = new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true });
+            inputEl.dispatchEvent(enterDown);
+            inputEl.dispatchEvent(enterPress);
+            inputEl.dispatchEvent(enterUp);
+
+            // Click Send button
+            const buttons = Array.from(document.querySelectorAll('button'));
+            const sendBtn = buttons.find(b => {
+              const t = (b.textContent || '').trim().toLowerCase();
+              const label = (b.getAttribute('aria-label') || '').toLowerCase();
+              const testId = (b.getAttribute('data-testid') || '').toLowerCase();
+              const title = (b.getAttribute('title') || '').toLowerCase();
+              return (
+                t === 'chat' || 
+                t === 'send' || 
+                label.includes('send') || 
+                label.includes('chat') || 
+                title.includes('send') || 
+                title.includes('chat') || 
+                testId.includes('send') || 
+                testId.includes('chat') || 
+                b.type === 'submit'
+              );
+            });
+
+            if (sendBtn) {
+              sendBtn.removeAttribute('disabled');
+              sendBtn.removeAttribute('aria-disabled');
+              sendBtn.disabled = false;
+              sendBtn.click();
+            }
+
+            return { ok: true };
+          })(${JSON.stringify(messageText)})
+        `);
+
+        if (prep && prep.ok) {
+          win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
+          win.webContents.sendInputEvent({ type: 'char', keyCode: '\r' });
+          win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
+
+          await new Promise(r => setTimeout(r, 600));
+
+          const verify = await win.webContents.executeJavaScript(`
+            (function() {
+              const inputEl = document.querySelector(
+                '#message-input, [data-chat-input="true"], div#message-input[contenteditable="true"], ' +
+                'div[contenteditable="true"][role="textbox"], div[contenteditable="true"], ' +
+                '.chat-input [contenteditable="true"], [data-testid="chat-input"], textarea'
+              );
+              if (!inputEl) return { verified: true };
+              const remaining = (inputEl.textContent || inputEl.value || '').trim();
+              if (remaining !== '') {
+                inputEl.textContent = '';
+                if (inputEl.value) inputEl.value = '';
+              }
+              return { verified: remaining === '' };
+            })()
+          `);
+
+          if (verify && verify.verified) {
+            websocketServer.logSystem(`${tag} Successfully posted via DOM: "${messageText}"`);
+            return true;
+          }
+        }
+      }
+
+      websocketServer.logSystem(`${tag} Failed to post message: "${messageText}"`, 'warning');
+      return false;
     } catch (err) {
-      websocketServer.logSystem(`[Kick Bot Account] Send error: ${err.message}`, 'error');
+      websocketServer.logSystem(`${tag} Send error: ${err.message}`, 'error');
       return false;
     }
+  }
+
+  async sendKickBroadcasterMessage(chatroomId, username, messageText) {
+    if (!this._kickSendQueue) this._kickSendQueue = Promise.resolve();
+    const run = () => this._executeSendKickMessage('broadcaster', chatroomId, username, messageText);
+    this._kickSendQueue = this._kickSendQueue.then(run, run);
+    return await this._kickSendQueue;
+  }
+
+  async sendKickBotMessage(chatroomId, username, messageText) {
+    if (!this._kickSendQueue) this._kickSendQueue = Promise.resolve();
+    const run = async () => {
+      const ok = await this._executeSendKickMessage('bot_account', chatroomId, username, messageText);
+      if (!ok) {
+        websocketServer.logSystem('[Kick Bot] Dedicated Bot account failed or not logged in. Falling back to Broadcaster account...', 'warning');
+        return await this._executeSendKickMessage('broadcaster', chatroomId, username, messageText);
+      }
+      return true;
+    };
+    this._kickSendQueue = this._kickSendQueue.then(run, run);
+    return await this._kickSendQueue;
   }
 }
 

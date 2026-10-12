@@ -16,6 +16,9 @@ const streamVideoId = document.getElementById('stream-videoid');
 const streamTitle = document.getElementById('stream-title');
 
 const inputKickUsername = document.getElementById('input-kick-username');
+const kickSessionStatusText = document.getElementById('kick-session-status-text');
+const btnKickLogin = document.getElementById('btn-kick-login');
+const btnKickLogout = document.getElementById('btn-kick-logout');
 const toggleKick = document.getElementById('toggle-kick');
 const kickStatus = document.getElementById('kick-status');
 const kickViewers = document.getElementById('kick-viewers');
@@ -81,6 +84,7 @@ const ytBotStatus = document.getElementById('yt-bot-status');
 const selectKickAccountMode = document.getElementById('select-kick-account-mode');
 const kickBotLoginGroup = document.getElementById('kick-bot-login-group');
 const btnKickBotLogin = document.getElementById('btn-kick-bot-login');
+const btnKickBotPreview = document.getElementById('btn-kick-bot-preview');
 const btnKickBotLogout = document.getElementById('btn-kick-bot-logout');
 const kickBotStatus = document.getElementById('kick-bot-status');
 const selectPersonaPreset = document.getElementById('select-persona-preset');
@@ -126,6 +130,7 @@ async function init() {
   await loadSettings();
   await loadOllamaSettings();
   await checkYouTubeLogin();
+  await checkKickLogin();
   setupIpcListeners();
 }
 
@@ -207,6 +212,49 @@ function updateLoginUI(loggedIn) {
     
     // Disable scanner toggle if not logged in
     toggleMonitor.checked = false;
+  }
+}
+
+// Check current Kick Broadcaster Authentication status
+async function checkKickLogin() {
+  if (!kickSessionStatusText) return;
+  kickSessionStatusText.innerText = 'Checking...';
+  kickSessionStatusText.style.color = 'var(--text-muted)';
+  
+  try {
+    const res = await ipcRenderer.invoke('check-kick-login');
+    updateKickLoginUI(res.loggedIn, res.username);
+  } catch (e) {
+    updateKickLoginUI(false);
+  }
+}
+
+function updateKickLoginUI(loggedIn, username) {
+  if (!kickSessionStatusText) return;
+  const kickBadge = document.getElementById('kick-channel-badge');
+  if (loggedIn) {
+    kickSessionStatusText.innerText = username ? `Authenticated (${username})` : 'Authenticated (Broadcaster)';
+    kickSessionStatusText.style.color = '#22c55e';
+    if (btnKickLogin) btnKickLogin.style.display = 'none';
+    if (btnKickLogout) btnKickLogout.style.display = 'inline-flex';
+    if (username && inputKickUsername) {
+      inputKickUsername.value = username;
+      inputKickUsername.readOnly = true;
+      inputKickUsername.style.opacity = '0.85';
+      inputKickUsername.title = 'Channel username locked to authenticated broadcaster account.';
+    }
+    if (kickBadge) kickBadge.style.display = 'inline';
+  } else {
+    kickSessionStatusText.innerText = 'Not Authenticated';
+    kickSessionStatusText.style.color = '#ef4444';
+    if (btnKickLogin) btnKickLogin.style.display = 'inline-flex';
+    if (btnKickLogout) btnKickLogout.style.display = 'none';
+    if (inputKickUsername) {
+      inputKickUsername.readOnly = false;
+      inputKickUsername.style.opacity = '1';
+      inputKickUsername.title = '';
+    }
+    if (kickBadge) kickBadge.style.display = 'none';
   }
 }
 
@@ -303,6 +351,24 @@ function setupEventListeners() {
       ipcRenderer.send('toggle-monitor', false);
     }
   });
+
+  // Open Kick Broadcaster login popup
+  if (btnKickLogin) {
+    btnKickLogin.addEventListener('click', () => {
+      ipcRenderer.send('open-kick-login');
+    });
+  }
+
+  // Logout from Kick Broadcaster
+  if (btnKickLogout) {
+    btnKickLogout.addEventListener('click', async () => {
+      const success = await ipcRenderer.invoke('logout-kick');
+      if (success) {
+        updateKickLoginUI(false);
+        showToast('Successfully logged out Kick broadcaster!');
+      }
+    });
+  }
 
   // Toggle Background Monitoring
   toggleMonitor.addEventListener('change', async (e) => {
@@ -446,6 +512,12 @@ function setupEventListeners() {
   btnKickBotLogin.addEventListener('click', () => {
     ipcRenderer.invoke('show-kick-bot-login');
   });
+
+  if (btnKickBotPreview) {
+    btnKickBotPreview.addEventListener('click', async () => {
+      await ipcRenderer.invoke('toggle-kick-bot-window');
+    });
+  }
 
   btnKickBotLogout.addEventListener('click', async () => {
     await ipcRenderer.invoke('logout-kick-bot');
@@ -738,6 +810,10 @@ function setupIpcListeners() {
     if (!loggedIn) {
       toggleMonitor.checked = false;
     }
+  });
+
+  ipcRenderer.on('kick-login-status-changed', (event, { loggedIn, username }) => {
+    updateKickLoginUI(loggedIn, username);
   });
 
   ipcRenderer.on('youtube-bot-login-changed', (event, { loggedIn }) => {
