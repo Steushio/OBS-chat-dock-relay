@@ -62,6 +62,47 @@ class OverlayServer {
       }
     });
 
+    // Route to manually clear OBS chat dock
+    this.app.get('/clear-chat', (req, res) => {
+      try {
+        const websocketServer = require('./websocketServer');
+        websocketServer.clearChat();
+        res.json({ success: true, message: 'OBS chat docks cleared' });
+      } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+      }
+    });
+
+    // Route to toggle auto-clear old chat setting directly from OBS dock
+    this.app.get('/toggle-clear-chat', (req, res) => {
+      try {
+        const configStore = require('./configStore');
+        const websocketServer = require('./websocketServer');
+        const currentState = !!configStore.get('clearOldChat');
+        const newState = !currentState;
+        configStore.set('clearOldChat', newState);
+
+        websocketServer.broadcast('settings_update', {
+          clearOldChat: newState,
+          clearOldChatLimit: configStore.get('clearOldChatLimit') || 30,
+          clearOldChatTimeout: configStore.get('clearOldChatTimeout') || 120
+        });
+
+        try {
+          const { BrowserWindow } = require('electron');
+          BrowserWindow.getAllWindows().forEach(w => {
+            if (!w.isDestroyed()) {
+              w.webContents.send('settings-updated', { clearOldChat: newState });
+            }
+          });
+        } catch (e) {}
+
+        res.json({ success: true, clearOldChat: newState });
+      } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+      }
+    });
+
     // Root status API
     this.app.get('/status', (req, res) => {
       const configStore = require('./configStore');
@@ -69,7 +110,10 @@ class OverlayServer {
         status: 'running', 
         service: 'OBS Chat Relay HTTP Server',
         wsPort: configStore.get('wsPort') || 3001,
-        lowResourceMode: configStore.get('lowResourceMode') || false
+        lowResourceMode: configStore.get('lowResourceMode') || false,
+        clearOldChat: configStore.get('clearOldChat') || false,
+        clearOldChatLimit: configStore.get('clearOldChatLimit') || 30,
+        clearOldChatTimeout: configStore.get('clearOldChatTimeout') || 120
       });
     });
   }

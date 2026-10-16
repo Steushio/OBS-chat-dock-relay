@@ -33,6 +33,11 @@ const urlEvent = document.getElementById('url-event');
 const inputHttpPort = document.getElementById('input-http-port');
 const inputWsPort = document.getElementById('input-ws-port');
 const toggleLowResource = document.getElementById('toggle-low-resource');
+const btnClearDockChat = document.getElementById('btn-clear-dock-chat');
+const toggleClearOldChat = document.getElementById('toggle-clear-old-chat');
+const clearChatOptionsGroup = document.getElementById('clear-chat-options-group');
+const inputClearChatLimit = document.getElementById('input-clear-chat-limit');
+const selectClearChatTimeout = document.getElementById('select-clear-chat-timeout');
 const toggleAutostart = document.getElementById('toggle-autostart');
 const toggleAutoStartMonitoring = document.getElementById('toggle-auto-start-monitoring');
 const toggleStartMinimized = document.getElementById('toggle-start-minimized');
@@ -143,6 +148,12 @@ async function loadSettings() {
     inputHttpPort.value = config.httpPort;
     inputWsPort.value = config.wsPort;
     toggleLowResource.checked = config.lowResourceMode;
+    toggleClearOldChat.checked = !!config.clearOldChat;
+    inputClearChatLimit.value = config.clearOldChatLimit !== undefined ? config.clearOldChatLimit : 30;
+    selectClearChatTimeout.value = config.clearOldChatTimeout !== undefined ? config.clearOldChatTimeout : 120;
+    if (clearChatOptionsGroup) {
+      clearChatOptionsGroup.style.display = toggleClearOldChat.checked ? 'block' : 'none';
+    }
     toggleAutostart.checked = config.autoStart;
     toggleAutoStartMonitoring.checked = config.autoStartMonitoring || false;
     toggleStartMinimized.checked = config.startMinimized || false;
@@ -260,12 +271,36 @@ function updateKickLoginUI(loggedIn, username) {
 
 // 3. Bind UI interactions
 function setupEventListeners() {
+  // Toggle Clear Old Chat sub-options visibility
+  if (toggleClearOldChat) {
+    toggleClearOldChat.addEventListener('change', () => {
+      if (clearChatOptionsGroup) {
+        clearChatOptionsGroup.style.display = toggleClearOldChat.checked ? 'block' : 'none';
+      }
+    });
+  }
+
+  // Clear OBS Chat Dock button
+  if (btnClearDockChat) {
+    btnClearDockChat.addEventListener('click', async () => {
+      try {
+        await ipcRenderer.invoke('clear-dock-chat');
+        showToast('OBS Chat Docks cleared!');
+      } catch (e) {
+        showToast(`Failed to clear docks: ${e.message}`);
+      }
+    });
+  }
+
   // Save Settings
   btnSaveSettings.addEventListener('click', async () => {
     const settings = {
       httpPort: parseInt(inputHttpPort.value),
       wsPort: parseInt(inputWsPort.value),
       lowResourceMode: toggleLowResource.checked,
+      clearOldChat: toggleClearOldChat.checked,
+      clearOldChatLimit: parseInt(inputClearChatLimit.value) || 30,
+      clearOldChatTimeout: parseInt(selectClearChatTimeout.value) !== undefined ? parseInt(selectClearChatTimeout.value) : 120,
       autoStart: toggleAutostart.checked,
       autoStartMonitoring: toggleAutoStartMonitoring.checked,
       startMinimized: toggleStartMinimized.checked,
@@ -880,6 +915,15 @@ function setupIpcListeners() {
 
   ipcRenderer.on('clear-activity', () => {
     activityPreview.innerHTML = '<div style="color: var(--text-muted); font-style: italic; text-align: center; padding: 20px 0;">Waiting for activity...</div>';
+  });
+
+  ipcRenderer.on('settings-updated', (event, data) => {
+    if (data && data.clearOldChat !== undefined && toggleClearOldChat) {
+      toggleClearOldChat.checked = !!data.clearOldChat;
+      if (clearChatOptionsGroup) {
+        clearChatOptionsGroup.style.display = toggleClearOldChat.checked ? 'block' : 'none';
+      }
+    }
   });
 }
 

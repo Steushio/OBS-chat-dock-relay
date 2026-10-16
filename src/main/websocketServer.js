@@ -33,6 +33,10 @@ class WebSocketServer {
           stream: this.currentStreamState,
           kickStream: this.currentKickState,
           recentLogs: this.logs.slice(-50),
+          lowResourceMode: configStore.get('lowResourceMode') || false,
+          clearOldChat: configStore.get('clearOldChat') || false,
+          clearOldChatLimit: configStore.get('clearOldChatLimit') || 30,
+          clearOldChatTimeout: configStore.get('clearOldChatTimeout') || 120,
           audioSettings: {
             chatSoundEnabled: configStore.get('chatSoundEnabled'),
             chatSoundType: configStore.get('chatSoundType'),
@@ -100,6 +104,11 @@ class WebSocketServer {
   clearLogsAndChats() {
     this.logs = [];
     this.broadcast('clear_state', {});
+  }
+
+  clearChat() {
+    this.broadcast('clear_chat', {});
+    this.logSystem('OBS Chat Docks cleared');
   }
 
   logSystem(message, level = 'info') {

@@ -417,6 +417,12 @@
             <button class="btn-secondary btn-copy" data-target="url-event">📋 Copy</button>
           </div>
         </div>
+
+        <div style="margin-top: 14px; display: flex; gap: 8px;">
+          <button id="btn-clear-dock-chat" class="btn-secondary" style="flex: 1; font-size: 12px; padding: 7px 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;" title="Immediately flush all chat messages from connected OBS docks">
+            🧹 Clear OBS Chat Dock
+          </button>
+        </div>
       </div>
 
       <!-- Settings Card -->
@@ -446,6 +452,36 @@
             <input type="checkbox" id="toggle-low-resource">
             <span class="slider"></span>
           </label>
+        </div>
+
+        <div class="switch-wrapper" style="margin-top: 6px;">
+          <div class="switch-label">
+            <span>Clear Old Chat in Docks</span>
+            <small>Auto-prune old messages to eliminate OBS RAM spikes & frame drops</small>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-clear-old-chat">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div id="clear-chat-options-group" style="display: none; background: rgba(0, 0, 0, 0.2); padding: 10px 12px; border-radius: 8px; margin-top: 6px; border: 1px solid rgba(255, 255, 255, 0.05);">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="input-clear-chat-limit" style="font-size: 11px;">Keep Max Messages</label>
+              <input type="number" id="input-clear-chat-limit" value="30" min="5" max="100" style="padding: 6px 8px; font-size: 12px;">
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="select-clear-chat-timeout" style="font-size: 11px;">Message Lifetime</label>
+              <select id="select-clear-chat-timeout" style="padding: 6px 8px; font-size: 12px; background-color: rgba(0, 0, 0, 0.2); border: 1px solid var(--border-muted); border-radius: 8px; color: #fff;">
+                <option value="60">1 minute</option>
+                <option value="120" selected>2 minutes</option>
+                <option value="180">3 minutes</option>
+                <option value="300">5 minutes</option>
+                <option value="0">Never (limit only)</option>
+              </select>
+            </div>
+          </div>
         </div>
 
         <div class="switch-wrapper">

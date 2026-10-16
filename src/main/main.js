@@ -370,6 +370,9 @@ function setupIpcHandlers() {
       configStore.set('httpPort', settings.httpPort);
       configStore.set('wsPort', settings.wsPort);
       configStore.set('lowResourceMode', settings.lowResourceMode);
+      configStore.set('clearOldChat', settings.clearOldChat);
+      configStore.set('clearOldChatLimit', settings.clearOldChatLimit !== undefined ? settings.clearOldChatLimit : 30);
+      configStore.set('clearOldChatTimeout', settings.clearOldChatTimeout !== undefined ? settings.clearOldChatTimeout : 120);
       configStore.set('autoStart', settings.autoStart);
       configStore.set('autoStartMonitoring', settings.autoStartMonitoring);
       configStore.set('startMinimized', settings.startMinimized);
@@ -411,8 +414,12 @@ function setupIpcHandlers() {
         }
       }
 
-      // Broadcast new audio settings to all connected websocket client docks
+      // Broadcast new settings to all connected websocket client docks
       websocketServer.broadcast('settings_update', {
+        lowResourceMode: settings.lowResourceMode,
+        clearOldChat: settings.clearOldChat,
+        clearOldChatLimit: settings.clearOldChatLimit !== undefined ? settings.clearOldChatLimit : 30,
+        clearOldChatTimeout: settings.clearOldChatTimeout !== undefined ? settings.clearOldChatTimeout : 120,
         audioSettings: {
           chatSoundEnabled: settings.chatSoundEnabled,
           chatSoundType: settings.chatSoundType,
@@ -430,6 +437,12 @@ function setupIpcHandlers() {
       websocketServer.logSystem(`Failed saving settings: ${err.message}`, 'error');
       return { success: false, error: err.message };
     }
+  });
+
+  // Manually clear chat on OBS docks
+  ipcMain.handle('clear-dock-chat', () => {
+    websocketServer.clearChat();
+    return { success: true };
   });
 
   // Settings Export to JSON file
