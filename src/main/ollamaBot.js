@@ -17,6 +17,7 @@ class OllamaBot {
       streamDescription: '',
       enableWebSearch: true,
       systemPrompt: 'You are an intelligent, friendly live stream chat bot for a live gaming stream.\nRules:\n- Answer viewer questions accurately using the stream description, streamer knowledge, and general facts.\n- If a viewer asks why the streamer plays without a keyboard or how they play, explain that it is due to health issues as mentioned in the stream info.\n- Welcome new viewers warmly.\n- Keep answers short, direct, and under 25 words.\n- NEVER sound like corporate customer support or say "How can I help you today?".',
+      cpuThreads: 2, // 1 to 4 CPU threads (2 leaves remaining 10 threads free for OBS and game)
       autoRespond: 'questions_and_mentions', // 'off' | 'mention_only' | 'questions_and_mentions' | 'all_chat'
       cooldownSeconds: 8,
       firstWordsEnabled: true,
@@ -41,6 +42,7 @@ class OllamaBot {
     this.recentChatHistory = []; // { username, message, isBot, timestamp }
     this.conversationHistory = []; // { role: 'user'|'assistant', content } multi-turn memory
     this.lastAiResponseTime = 0;
+    this.isGenerating = false; // Mutex to prevent multiple concurrent Ollama inferences from spiking CPU
     this.activeTimerIntervals = [];
     this.resetTimerState();
 
@@ -210,18 +212,26 @@ class OllamaBot {
 
   // Generate AI Response using Ollama /api/chat with stream description, FAQ, and internet search
   async generateAiResponse(userPrompt, username, platform, contextType = 'chat', overrideConfig = null) {
-    const baseUrl = this.normalizeUrl(overrideConfig?.url || this.settings.ollamaUrl);
-    const model = overrideConfig?.model || this.settings.model || 'qwen2.5:3b';
-    const systemPrompt = overrideConfig?.systemPrompt || this.settings.systemPrompt;
+    if (this.isGenerating) {
+      websocketServer.logSystem(`[Ollama Bot] AI engine busy generating previous response. Skipping request for "${userPrompt}".`);
+      return { success: false, skipped: true, reason: 'AI inference already in progress' };
+    }
 
-    const cleanUser = (username || '').replace(/^@+/, '').trim();
+    this.isGenerating = true;
 
-    // 1. Gather Live Stream Context
-    const activeStream = streamManager.getActiveStream();
-    const streamTitle = activeStream?.title || configStore.get('lastStreamTitle') || 'Live Stream';
-    const streamDescription = overrideConfig?.streamDescription || activeStream?.description || this.settings.streamDescription || '';
-    const streamerKnowledge = overrideConfig?.streamerKnowledge || this.settings.streamerKnowledge ||
-      `Streamer Information, Gear & FAQ:
+    try {
+      const baseUrl = this.normalizeUrl(overrideConfig?.url || this.settings.ollamaUrl);
+      const model = overrideConfig?.model || this.settings.model || 'qwen2.5:3b';
+      const systemPrompt = overrideConfig?.systemPrompt || this.settings.systemPrompt;
+      const cleanUser = (username || '').replace(/^@+/, '').trim();
+      const threads = Math.max(1, Math.min(4, parseInt(this.settings.cpuThreads, 10) || 2));
+
+      // 1. Gather Live Stream Context
+      const activeStream = streamManager.getActiveStream();
+      const streamTitle = activeStream?.title || configStore.get('lastStreamTitle') || 'Live Stream';
+      const streamDescription = overrideConfig?.streamDescription || activeStream?.description || this.settings.streamDescription || '';
+      const streamerKnowledge = overrideConfig?.streamerKnowledge || this.settings.streamerKnowledge ||
+        `Streamer Information, Gear & FAQ:
 - Broadcaster: Steushio (Cutie Bot)
 - Health / Surgery: Left hand surgery; challenges himself to reach Ascendant rank in Valorant with one hand using MMO mouse only!
 - Mouse: VXE R1se+ (main), Redragon 612 pro rgb (current)
@@ -231,37 +241,36 @@ class OllamaBot {
 - Game: Valorant (India)
 - Discord: https://discord.gg/UBsenpp`;
 
-    // 2. Determine if the question is covered by the Stream Description & FAQ
-    const isStreamCovered = webSearchHelper.isCoveredByStreamContext(userPrompt);
+      // 2. Determine if the question is covered by the Stream Description & FAQ
+      const isStreamCovered = webSearchHelper.isCoveredByStreamContext(userPrompt);
 
-    // 3. Live Internet Search if not covered by Stream Description
-    let webSnippet = null;
-    const isWebSearchEnabled = this.settings.enableWebSearch !== false;
-    const isFactualQuery = webSearchHelper.isSearchableQuery(userPrompt);
+      // 3. Live Internet Search if not covered by Stream Description
+      let webSnippet = null;
+      const isWebSearchEnabled = this.settings.enableWebSearch !== false;
+      const isFactualQuery = webSearchHelper.isSearchableQuery(userPrompt);
 
-    if (!isStreamCovered && contextType !== 'first_words') {
-      if (isWebSearchEnabled && isFactualQuery) {
-        websocketServer.logSystem(`[Ollama Bot] Question not in stream description. Checking the internet for: "${userPrompt}"...`);
-        webSnippet = await webSearchHelper.search(userPrompt);
-        if (webSnippet) {
-          websocketServer.logSystem(`[Ollama Bot] Found internet answer: "${webSnippet.substring(0, 100)}..."`);
-        } else {
-          websocketServer.logSystem(`[Ollama Bot] Internet search found no answer for: "${userPrompt}".`);
+      if (!isStreamCovered && contextType !== 'first_words') {
+        if (isWebSearchEnabled && isFactualQuery) {
+          websocketServer.logSystem(`[Ollama Bot] Question not in stream description. Checking the internet for: "${userPrompt}"...`);
+          webSnippet = await webSearchHelper.search(userPrompt);
+          if (webSnippet) {
+            websocketServer.logSystem(`[Ollama Bot] Found internet answer: "${webSnippet.substring(0, 100)}..."`);
+          } else {
+            websocketServer.logSystem(`[Ollama Bot] Internet search found no answer for: "${userPrompt}".`);
+          }
+        }
+
+        // If the viewer explicitly asked for outside factual trivia (e.g. "who is CEO of", "what is the capital of")
+        // and neither the stream context nor the internet had an answer, skip to avoid hallucinating false facts.
+        const isTriviaQuestion = /\b(who is|who was|what is the capital|release date|net worth|ceo of|price of|score of|president of|how old is|where was|population of)\b/i.test(userPrompt);
+        if (isTriviaQuestion && !webSnippet) {
+          websocketServer.logSystem(`[Ollama Bot] Trivia answer not found in stream description or internet for "${userPrompt}". Skipping reply as requested.`);
+          return { success: false, skipped: true, reason: 'Answer not found in stream description or internet' };
         }
       }
 
-      // If the viewer explicitly asked for outside factual trivia (e.g. "who is CEO of", "what is the capital of")
-      // and neither the stream context nor the internet had an answer, skip to avoid hallucinating false facts.
-      // For general chat, greetings, opinions, stream questions, or !ai, continue to AI generation!
-      const isTriviaQuestion = /\b(who is|who was|what is the capital|release date|net worth|ceo of|price of|score of|president of|how old is|where was|population of)\b/i.test(userPrompt);
-      if (isTriviaQuestion && !webSnippet) {
-        websocketServer.logSystem(`[Ollama Bot] Trivia answer not found in stream description or internet for "${userPrompt}". Skipping reply as requested.`);
-        return { success: false, skipped: true, reason: 'Answer not found in stream description or internet' };
-      }
-    }
-
-    // 4. Assemble Conversational System Instructions
-    const fullSystemInstruction = `${systemPrompt || 'You are Cutie Bot, the smart and friendly live stream chat assistant for streamer Steushio.'}
+      // 4. Assemble Conversational System Instructions
+      const fullSystemInstruction = `${systemPrompt || 'You are Cutie Bot, the smart and friendly live stream chat assistant for streamer Steushio.'}
 
 [PRIMARY SOURCE OF TRUTH: LIVE STREAM DESCRIPTION & STREAMER KNOWLEDGE]
 Before answering ANY viewer question, you MUST search the stream description and broadcaster knowledge below:
@@ -290,69 +299,91 @@ ${webSnippet ? `\n=== LIVE INTERNET FACTS ===\n${webSnippet}\n==================
    - NEVER sound like corporate customer support or say "How can I help you today?".
    - Write ONLY the chat reply text itself. Do NOT prepend "@${cleanUser}" and do NOT wrap the reply in quotes.
 6. ${contextType === 'first_words' 
-  ? `FIRST WORDS GREETING MODE:
+    ? `FIRST WORDS GREETING MODE:
    - Welcome this new chatter to the stream warmly and casually in 1 short sentence (under 15 words).` 
-  : `NO HALLUCINATIONS / SKIP IF UNKNOWN:
+    : `NO HALLUCINATIONS / SKIP IF UNKNOWN:
    - If the verified answer is not found in the description, knowledge base, or internet facts, output ONLY: "NO_ANSWER".`}`;
 
-    // 4. Assemble Multi-Turn Messages (Conversational like Gemini)
-    const messages = [
-      { role: 'system', content: fullSystemInstruction }
-    ];
+      // Assemble Multi-Turn Messages
+      const messages = [
+        { role: 'system', content: fullSystemInstruction }
+      ];
 
-    // Append recent conversational turns for multi-turn context
-    if (Array.isArray(this.conversationHistory) && this.conversationHistory.length > 0) {
-      messages.push(...this.conversationHistory.slice(-6));
-    }
+      if (Array.isArray(this.conversationHistory) && this.conversationHistory.length > 0) {
+        messages.push(...this.conversationHistory.slice(-6));
+      }
 
-    // Append current turn
-    messages.push({
-      role: 'user',
-      content: contextType === 'first_words' 
-        ? `${cleanUser}: (Just arrived in stream!) "${userPrompt}"` 
-        : `${cleanUser}: "${userPrompt}"`
-    });
-
-    let aiText = '';
-
-    // 5. Query Ollama /api/chat
-    try {
-      const response = await fetch(`${baseUrl}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: model,
-          messages: messages,
-          stream: false,
-          options: {
-            temperature: 0.7,
-            num_predict: 100
-          }
-        })
+      messages.push({
+        role: 'user',
+        content: contextType === 'first_words' 
+          ? `${cleanUser}: (Just arrived in stream!) "${userPrompt}"` 
+          : `${cleanUser}: "${userPrompt}"`
       });
 
-      if (response.ok) {
-        const json = await response.json();
-        aiText = (json.message?.content || '').trim();
-      } else {
-        // Fallback to /api/generate if /api/chat is not supported
-        const fallbackPrompt = `${fullSystemInstruction}\n\nChatter: @${cleanUser}\nMessage: "${userPrompt}"\nChat Reply:`;
-        const genRes = await fetch(`${baseUrl}/api/generate`, {
+      let aiText = '';
+
+      // 5. Query Ollama /api/chat with strict CPU thread limit and timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+      try {
+        const response = await fetch(`${baseUrl}/api/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
           body: JSON.stringify({
             model: model,
-            prompt: fallbackPrompt,
+            messages: messages,
             stream: false,
-            options: { temperature: 0.7, num_predict: 80 }
+            options: {
+              temperature: 0.7,
+              num_thread: threads,
+              num_ctx: 1024,
+              num_predict: 45 // 25 words is ~35 tokens; 45 keeps generation under 1.5s with low CPU
+            }
           })
         });
-        if (genRes.ok) {
-          const genJson = await genRes.json();
-          aiText = (genJson.response || '').trim();
+
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+          const json = await response.json();
+          aiText = (json.message?.content || '').trim();
         } else {
-          throw new Error(`Ollama returned HTTP ${response.status}`);
+          // Fallback to /api/generate
+          const fallbackPrompt = `${fullSystemInstruction}\n\nChatter: @${cleanUser}\nMessage: "${userPrompt}"\nChat Reply:`;
+          const fallbackCtrl = new AbortController();
+          const fbTimeout = setTimeout(() => fallbackCtrl.abort(), 10000);
+
+          const genRes = await fetch(`${baseUrl}/api/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: fallbackCtrl.signal,
+            body: JSON.stringify({
+              model: model,
+              prompt: fallbackPrompt,
+              stream: false,
+              options: {
+                temperature: 0.7,
+                num_thread: threads,
+                num_ctx: 1024,
+                num_predict: 45
+              }
+            })
+          });
+
+          clearTimeout(fbTimeout);
+
+          if (genRes.ok) {
+            const genJson = await genRes.json();
+            aiText = (genJson.response || '').trim();
+          } else {
+            throw new Error(`Ollama returned HTTP ${response.status}`);
+          }
         }
+      } catch (reqErr) {
+        clearTimeout(timeoutId);
+        throw reqErr;
       }
 
       // Clean up response: single line, strip quotes
@@ -375,7 +406,7 @@ ${webSnippet ? `\n=== LIVE INTERNET FACTS ===\n${webSnippet}\n==================
         return { success: false, skipped: true, reason: 'Verified answer not found' };
       }
 
-      // Crucial: Strip any leading @username or @username: or @bot prefix that Ollama might have generated
+      // Strip any leading @username or @username: or @bot prefix that Ollama might have generated
       const cleanPrefixRegex = new RegExp(`^@?(${cleanUser}|${username}|${this.settings.botName || 'bot'}|cutiebot)[:\\s,]+`, 'i');
       while (cleanPrefixRegex.test(aiText)) {
         aiText = aiText.replace(cleanPrefixRegex, '').trim();
@@ -396,6 +427,8 @@ ${webSnippet ? `\n=== LIVE INTERNET FACTS ===\n${webSnippet}\n==================
       return { success: true, text: aiText };
     } catch (err) {
       return { success: false, error: err.message };
+    } finally {
+      this.isGenerating = false;
     }
   }
 
@@ -493,6 +526,11 @@ ${webSnippet ? `\n=== LIVE INTERNET FACTS ===\n${webSnippet}\n==================
     }
 
     if (shouldRespond) {
+      if (this.isGenerating) {
+        websocketServer.logSystem(`[Ollama Bot] Skipping AI response for "${rawMessage}" (AI engine is currently busy).`);
+        return;
+      }
+
       const cooldownMs = (this.settings.cooldownSeconds || 8) * 1000;
       if (now - this.lastAiResponseTime < cooldownMs) {
         return; // In cooldown
@@ -525,8 +563,14 @@ ${webSnippet ? `\n=== LIVE INTERNET FACTS ===\n${webSnippet}\n==================
 
   async processFirstWords(username, platform, rawMessage) {
     const cleanUser = username.replace(/^@+/, '').trim();
-    if (this.settings.firstWordsMode === 'ai') {
+    const cooldownMs = (this.settings.cooldownSeconds || 8) * 1000;
+    const inCooldown = (Date.now() - this.lastAiResponseTime) < cooldownMs;
+
+    // Only run AI welcomer if engine is NOT busy and NOT on cooldown
+    // If AI is busy or on cooldown, fallback to template greeting instantly (0% CPU impact)
+    if (this.settings.firstWordsMode === 'ai' && !this.isGenerating && !inCooldown) {
       websocketServer.logSystem(`[Ollama Bot] Generating First Words AI greeting for ${cleanUser}: "${rawMessage}"`);
+      this.lastAiResponseTime = Date.now();
       const aiResult = await this.generateAiResponse(rawMessage, cleanUser, platform, 'first_words');
       if (aiResult.success && aiResult.text) {
         const replyText = `@${cleanUser} ${aiResult.text}`;
@@ -535,7 +579,7 @@ ${webSnippet ? `\n=== LIVE INTERNET FACTS ===\n${webSnippet}\n==================
       }
     }
 
-    // Default template fallback
+    // Default template fallback (instant response, zero CPU compute)
     const template = this.settings.firstWordsTemplate || 'Welcome to the stream {username}! Thanks for chatting!';
     const welcomeMsg = template.replace('{username}', cleanUser);
     this.sendBotReply(platform, welcomeMsg);

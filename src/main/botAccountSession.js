@@ -188,8 +188,8 @@ class BotAccountSession {
     this.ytBotVideoId = videoId;
 
     this.ytBotChatWindow = new BrowserWindow({
-      width: 1024,
-      height: 768,
+      width: 400,
+      height: 600,
       show: false,
       skipTaskbar: true,
       title: 'YouTube Bot Live Chat Preview',
@@ -199,7 +199,10 @@ class BotAccountSession {
         nodeIntegration: false,
         contextIsolation: true,
         sandbox: true,
-        backgroundThrottling: false
+        backgroundThrottling: false,
+        images: false,
+        webgl: false,
+        enableWebSQL: false
       }
     });
 
@@ -217,6 +220,11 @@ class BotAccountSession {
     this.ytBotChatWindow.webContents.on('did-finish-load', async () => {
       websocketServer.logSystem(`[YouTube Bot] Live chat window finished loading for video: ${videoId}`);
       try {
+        // Inject lightweight CSS to hide live chat list and animations in typing window to save CPU/GPU
+        await this.ytBotChatWindow.webContents.insertCSS(`
+          yt-live-chat-item-list-renderer, #item-list, #ticker, yt-live-chat-banner-manager { display: none !important; }
+        `).catch(() => {});
+
         const check = await this.ytBotChatWindow.webContents.executeJavaScript(`
           (function() {
             const signIn = document.querySelector('#sign-in-button, a[href*="accounts.google.com"], a[href*="signin"], ytd-button-renderer a[href*="ServiceLogin"]');
@@ -339,10 +347,7 @@ class BotAccountSession {
     }
 
     try {
-      // 3. CRUCIAL: Focus WebContents so Chromium native inputs and DOM focus take effect even if window is hidden
-      this.ytBotChatWindow.webContents.focus();
-
-      // 4. Focus DOM element, clear prior text, insert new text via execCommand and synthetic InputEvents
+      // 3. Focus DOM element, clear prior text, insert new text via execCommand and synthetic InputEvents
       const prep = await this.ytBotChatWindow.webContents.executeJavaScript(`
         (function(text) {
           const inputEl = document.querySelector(
@@ -653,8 +658,8 @@ class BotAccountSession {
 
     websocketServer.logSystem(`${tag} Prewarming background chat session for: ${username}...`);
     const win = new BrowserWindow({
-      width: 440,
-      height: 720,
+      width: 380,
+      height: 550,
       show: false,
       skipTaskbar: true,
       frame: true,
@@ -665,7 +670,9 @@ class BotAccountSession {
         contextIsolation: true,
         sandbox: true,
         backgroundThrottling: false,
-        paintWhenInitiallyHidden: true
+        images: false,
+        webgl: false,
+        enableWebSQL: false
       }
     });
 
@@ -988,8 +995,6 @@ class BotAccountSession {
       // 3. TERTIARY STRATEGY: DOM Automation Fallback
       const readyCheck = await this.waitForKickChatInputReady(win, 6000, tag);
       if (readyCheck.ok) {
-        win.webContents.focus();
-
         const prep = await win.webContents.executeJavaScript(`
           (function(text) {
             const inputEl = document.querySelector(

@@ -77,8 +77,8 @@ class ChatCapture {
     }
 
     this.chatWindow = new BrowserWindow({
-      width: 1024,
-      height: 768,
+      width: 400,
+      height: 600,
       show: false, // Background window
       skipTaskbar: true,
       frame: false,

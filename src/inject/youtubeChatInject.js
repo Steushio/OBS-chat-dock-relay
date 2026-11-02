@@ -297,6 +297,13 @@ function initObserver() {
         }
       });
     });
+
+    // Auto-prune old DOM nodes in the background capture window to keep memory and CPU footprint near 0
+    if (itemsContainer.children.length > 50) {
+      while (itemsContainer.children.length > 30) {
+        itemsContainer.removeChild(itemsContainer.children[0]);
+      }
+    }
   });
 
   observer.observe(itemsContainer, { childList: true });

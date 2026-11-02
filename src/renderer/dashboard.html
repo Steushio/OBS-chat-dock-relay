@@ -294,8 +294,8 @@
           <small style="color: var(--text-muted); font-size: 11px;">The bot will never reply to itself or these bot accounts.</small>
         </div>
 
-        <!-- Auto-Respond & Cooldown -->
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px;">
+        <!-- Auto-Respond, Cooldown & CPU Threads -->
+        <div style="display: grid; grid-template-columns: 1.2fr 0.8fr 1.2fr; gap: 10px; margin-top: 8px;">
           <div class="form-group">
             <label for="select-auto-respond">AI Response Trigger</label>
             <select id="select-auto-respond" class="input-select" style="width: 100%; padding: 8px; border-radius: 6px; background: #18181b; color: #fff; border: 1px solid #3f3f46;">
@@ -308,6 +308,15 @@
           <div class="form-group">
             <label for="input-ollama-cooldown">Cooldown (Sec)</label>
             <input type="number" id="input-ollama-cooldown" value="8" min="2" max="300">
+          </div>
+          <div class="form-group">
+            <label for="select-ollama-threads" title="Limits Ollama to 1-4 CPU cores so it never starves OBS encoding or the game">CPU Threads (Stream Safety)</label>
+            <select id="select-ollama-threads" class="input-select" style="width: 100%; padding: 8px; border-radius: 6px; background: #18181b; color: #fff; border: 1px solid #3f3f46;">
+              <option value="1">1 Core (Ultra-Low CPU)</option>
+              <option value="2" selected>2 Cores (Recommended for OBS)</option>
+              <option value="3">3 Cores</option>
+              <option value="4">4 Cores</option>
+            </select>
           </div>
         </div>
 

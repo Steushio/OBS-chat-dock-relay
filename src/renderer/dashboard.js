@@ -101,6 +101,7 @@ const toggleWebSearch = document.getElementById('toggle-web-search');
 const inputIgnoredUsers = document.getElementById('input-ignored-users');
 const selectAutoRespond = document.getElementById('select-auto-respond');
 const inputOllamaCooldown = document.getElementById('input-ollama-cooldown');
+const selectOllamaThreads = document.getElementById('select-ollama-threads');
 
 const personaPresets = {
   hype: `You are a hype, energetic, and casual live stream chat bot for a live gaming stream.\nRules:\n- Respond naturally like a streamer or chat moderator using casual stream slang, hype, or emojis.\n- NEVER sound like customer support, an assistant, or say "How can I help you today?".\n- Keep responses short, direct, and under 15 words.`,
@@ -667,6 +668,7 @@ async function loadOllamaSettings() {
     }
     selectAutoRespond.value = settings.autoRespond || 'questions_and_mentions';
     inputOllamaCooldown.value = settings.cooldownSeconds !== undefined ? settings.cooldownSeconds : 8;
+    if (selectOllamaThreads) selectOllamaThreads.value = String(settings.cpuThreads !== undefined ? settings.cpuThreads : 2);
 
     toggleFirstWords.checked = !!settings.firstWordsEnabled;
     selectFirstWordsMode.value = settings.firstWordsMode || 'template';
@@ -822,6 +824,7 @@ async function saveOllamaSettings(silent = false) {
     ignoredUsers: inputIgnoredUsers ? inputIgnoredUsers.value.trim() : 'cutie bot, cutiebot, nightbot, streamelements',
     autoRespond: selectAutoRespond.value,
     cooldownSeconds: parseInt(inputOllamaCooldown.value, 10) || 8,
+    cpuThreads: selectOllamaThreads ? (parseInt(selectOllamaThreads.value, 10) || 2) : 2,
     firstWordsEnabled: toggleFirstWords.checked,
     firstWordsMode: selectFirstWordsMode.value,
     firstWordsTemplate: inputFirstWordsTemplate.value.trim(),
