@@ -43,6 +43,8 @@ class OllamaBot {
     this.conversationHistory = []; // { role: 'user'|'assistant', content } multi-turn memory
     this.lastAiResponseTime = 0;
     this.isGenerating = false; // Mutex to prevent multiple concurrent Ollama inferences from spiking CPU
+    this.aiQueue = []; // FIFO queue for viewer questions so no chat queries are lost
+    this.isProcessingQueue = false;
     this.activeTimerIntervals = [];
     this.resetTimerState();
 
@@ -212,8 +214,15 @@ class OllamaBot {
 
   // Generate AI Response using Ollama /api/chat with stream description, FAQ, and internet search
   async generateAiResponse(userPrompt, username, platform, contextType = 'chat', overrideConfig = null) {
+    // If an inference is currently running, wait briefly for it to finish
+    let waitChecks = 0;
+    while (this.isGenerating && waitChecks < 30) {
+      await new Promise(r => setTimeout(r, 300));
+      waitChecks++;
+    }
+
     if (this.isGenerating) {
-      websocketServer.logSystem(`[Ollama Bot] AI engine busy generating previous response. Skipping request for "${userPrompt}".`);
+      websocketServer.logSystem(`[Ollama Bot] AI engine still busy. Skipping direct call for "${userPrompt}".`);
       return { success: false, skipped: true, reason: 'AI inference already in progress' };
     }
 
@@ -526,16 +535,6 @@ ${webSnippet ? `\n=== LIVE INTERNET FACTS ===\n${webSnippet}\n==================
     }
 
     if (shouldRespond) {
-      if (this.isGenerating) {
-        websocketServer.logSystem(`[Ollama Bot] Skipping AI response for "${rawMessage}" (AI engine is currently busy).`);
-        return;
-      }
-
-      const cooldownMs = (this.settings.cooldownSeconds || 8) * 1000;
-      if (now - this.lastAiResponseTime < cooldownMs) {
-        return; // In cooldown
-      }
-
       // Clean prompt: remove !ai or bot tag
       let cleanPrompt = rawMessage
         .replace(/^!ai\s+/i, '')
@@ -545,41 +544,88 @@ ${webSnippet ? `\n=== LIVE INTERNET FACTS ===\n${webSnippet}\n==================
 
       if (!cleanPrompt) cleanPrompt = rawMessage;
 
-      this.lastAiResponseTime = now;
-      websocketServer.logSystem(`[Ollama Bot] Generating AI response for ${username} (${platform}): "${cleanPrompt}"`);
+      // Queue the AI request so incoming chats are never skipped or lost
+      this.queueAiRequest(cleanPrompt, username, platform, 'chat');
+    }
+  }
 
-      const aiResult = await this.generateAiResponse(cleanPrompt, username, platform, 'chat');
-      if (aiResult.success && aiResult.text) {
-        const cleanUser = username.replace(/^@+/, '').trim();
-        const replyText = `@${cleanUser} ${aiResult.text}`;
-        this.sendBotReply(platform, replyText);
-      } else if (aiResult.skipped) {
-        websocketServer.logSystem(`[Ollama Bot] Skipping reply for "${cleanPrompt}" (no verified answer found in stream description or internet).`);
-      } else {
-        websocketServer.logSystem(`[Ollama Bot] AI Generation failed: ${aiResult.error}`, 'warning');
+  // Queue incoming AI requests so multiple chats are answered sequentially without dropping any messages
+  queueAiRequest(prompt, username, platform, contextType = 'chat') {
+    if (!prompt || !username) return;
+
+    // Check if this user already has a pending question in queue (prevent duplicate flooding)
+    const existingIdx = this.aiQueue.findIndex(
+      q => q.username.toLowerCase() === username.toLowerCase() && q.platform === platform
+    );
+
+    if (existingIdx !== -1) {
+      this.aiQueue[existingIdx] = { prompt, username, platform, contextType, queuedAt: Date.now() };
+    } else {
+      if (this.aiQueue.length >= 5) {
+        this.aiQueue.shift(); // Keep latest 5 questions
       }
+      this.aiQueue.push({ prompt, username, platform, contextType, queuedAt: Date.now() });
+    }
+
+    websocketServer.logSystem(`[Ollama Bot] Queued AI query for @${username} on ${platform}: "${prompt}" (Queue: ${this.aiQueue.length})`);
+    this.processAiQueue();
+  }
+
+  async processAiQueue() {
+    if (this.isProcessingQueue) return;
+    this.isProcessingQueue = true;
+
+    try {
+      while (this.aiQueue.length > 0) {
+        const item = this.aiQueue.shift();
+
+        // Expire questions older than 90 seconds
+        if (Date.now() - item.queuedAt > 90000) {
+          websocketServer.logSystem(`[Ollama Bot] Dropped stale question from @${item.username}: "${item.prompt}" (>90s old)`);
+          continue;
+        }
+
+        // Respect cooldown between AI responses
+        const cooldownMs = (this.settings.cooldownSeconds || 6) * 1000;
+        const timeSinceLast = Date.now() - this.lastAiResponseTime;
+        if (this.lastAiResponseTime > 0 && timeSinceLast < cooldownMs) {
+          const waitMs = cooldownMs - timeSinceLast;
+          await new Promise(r => setTimeout(r, waitMs));
+        }
+
+        this.lastAiResponseTime = Date.now();
+        websocketServer.logSystem(`[Ollama Bot] Generating AI response for @${item.username} (${item.platform}): "${item.prompt}" (Remaining in queue: ${this.aiQueue.length})`);
+
+        const aiResult = await this.generateAiResponse(item.prompt, item.username, item.platform, item.contextType);
+        if (aiResult.success && aiResult.text) {
+          const cleanUser = item.username.replace(/^@+/, '').trim();
+          const replyText = `@${cleanUser} ${aiResult.text}`;
+          await this.sendBotReply(item.platform, replyText);
+        } else if (aiResult.skipped) {
+          websocketServer.logSystem(`[Ollama Bot] Skipping reply for "${item.prompt}" (no verified answer found in stream description or internet).`);
+        } else if (aiResult.error) {
+          websocketServer.logSystem(`[Ollama Bot] AI Generation failed: ${aiResult.error}`, 'warning');
+        }
+      }
+    } catch (err) {
+      console.error('[Ollama Bot Queue Error]', err);
+    } finally {
+      this.isProcessingQueue = false;
     }
   }
 
   async processFirstWords(username, platform, rawMessage) {
     const cleanUser = username.replace(/^@+/, '').trim();
-    const cooldownMs = (this.settings.cooldownSeconds || 8) * 1000;
-    const inCooldown = (Date.now() - this.lastAiResponseTime) < cooldownMs;
 
-    // Only run AI welcomer if engine is NOT busy and NOT on cooldown
-    // If AI is busy or on cooldown, fallback to template greeting instantly (0% CPU impact)
-    if (this.settings.firstWordsMode === 'ai' && !this.isGenerating && !inCooldown) {
-      websocketServer.logSystem(`[Ollama Bot] Generating First Words AI greeting for ${cleanUser}: "${rawMessage}"`);
-      this.lastAiResponseTime = Date.now();
-      const aiResult = await this.generateAiResponse(rawMessage, cleanUser, platform, 'first_words');
-      if (aiResult.success && aiResult.text) {
-        const replyText = `@${cleanUser} ${aiResult.text}`;
-        this.sendBotReply(platform, replyText);
+    if (this.settings.firstWordsMode === 'ai') {
+      // If AI engine is currently idle and queue is empty, queue the AI greeting immediately
+      if (!this.isGenerating && this.aiQueue.length === 0) {
+        this.queueAiRequest(rawMessage, cleanUser, platform, 'first_words');
         return;
       }
     }
 
-    // Default template fallback (instant response, zero CPU compute)
+    // Default template fallback (instant response, zero wait time)
     const template = this.settings.firstWordsTemplate || 'Welcome to the stream {username}! Thanks for chatting!';
     const welcomeMsg = template.replace('{username}', cleanUser);
     this.sendBotReply(platform, welcomeMsg);
@@ -780,6 +826,7 @@ ${webSnippet ? `\n=== LIVE INTERNET FACTS ===\n${webSnippet}\n==================
   resetFirstWordsSession() {
     this.seenChatters.clear();
     this.conversationHistory = [];
+    this.aiQueue = [];
     this.resetTimerState();
     websocketServer.logSystem('[Ollama Bot] Reset First Words session chatters, timer state, and conversation memory.');
   }
