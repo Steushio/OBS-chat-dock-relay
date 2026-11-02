@@ -553,19 +553,26 @@ ${webSnippet ? `\n=== LIVE INTERNET FACTS ===\n${webSnippet}\n==================
   queueAiRequest(prompt, username, platform, contextType = 'chat') {
     if (!prompt || !username) return;
 
-    // Check if this user already has a pending question in queue (prevent duplicate flooding)
-    const existingIdx = this.aiQueue.findIndex(
-      q => q.username.toLowerCase() === username.toLowerCase() && q.platform === platform
+    const cleanPromptLower = prompt.toLowerCase().trim();
+
+    // Only skip if the exact identical text is already queued for this user (accidental double submit)
+    const isExactDuplicate = this.aiQueue.some(
+      q => q.username.toLowerCase() === username.toLowerCase() && 
+           q.platform === platform && 
+           q.prompt.toLowerCase().trim() === cleanPromptLower
     );
 
-    if (existingIdx !== -1) {
-      this.aiQueue[existingIdx] = { prompt, username, platform, contextType, queuedAt: Date.now() };
-    } else {
-      if (this.aiQueue.length >= 5) {
-        this.aiQueue.shift(); // Keep latest 5 questions
-      }
-      this.aiQueue.push({ prompt, username, platform, contextType, queuedAt: Date.now() });
+    if (isExactDuplicate) {
+      websocketServer.logSystem(`[Ollama Bot] Ignoring exact duplicate prompt from @${username}: "${prompt}"`);
+      return;
     }
+
+    // Expand queue capacity up to 15 items so viewers' follow-up questions are never dropped
+    if (this.aiQueue.length >= 15) {
+      this.aiQueue.shift();
+    }
+
+    this.aiQueue.push({ prompt, username, platform, contextType, queuedAt: Date.now() });
 
     websocketServer.logSystem(`[Ollama Bot] Queued AI query for @${username} on ${platform}: "${prompt}" (Queue: ${this.aiQueue.length})`);
     this.processAiQueue();
@@ -579,14 +586,14 @@ ${webSnippet ? `\n=== LIVE INTERNET FACTS ===\n${webSnippet}\n==================
       while (this.aiQueue.length > 0) {
         const item = this.aiQueue.shift();
 
-        // Expire questions older than 90 seconds
-        if (Date.now() - item.queuedAt > 90000) {
-          websocketServer.logSystem(`[Ollama Bot] Dropped stale question from @${item.username}: "${item.prompt}" (>90s old)`);
+        // Expire questions older than 120 seconds
+        if (Date.now() - item.queuedAt > 120000) {
+          websocketServer.logSystem(`[Ollama Bot] Dropped stale question from @${item.username}: "${item.prompt}" (>120s old)`);
           continue;
         }
 
-        // Respect cooldown between AI responses
-        const cooldownMs = (this.settings.cooldownSeconds || 6) * 1000;
+        // Keep pace between consecutive replies (e.g. 3-4s pacing so chat flows smoothly without spamming)
+        const cooldownMs = Math.min((this.settings.cooldownSeconds || 6) * 1000, 4000);
         const timeSinceLast = Date.now() - this.lastAiResponseTime;
         if (this.lastAiResponseTime > 0 && timeSinceLast < cooldownMs) {
           const waitMs = cooldownMs - timeSinceLast;
