@@ -79,6 +79,9 @@
       flex-direction: column;
       gap: 4px;
       scroll-behavior: auto;
+      contain: content;
+      transform: translateZ(0);
+      will-change: scroll-position;
     }
 
     /* Message Item */
@@ -91,6 +94,8 @@
       background-color: rgba(255, 255, 255, 0.015);
       border: 1px solid rgba(255, 255, 255, 0.05);
       margin-bottom: 4px;
+      contain: layout style;
+      transform: translateZ(0);
     }
     .message-row:hover {
       background-color: var(--bg-hover);
@@ -100,9 +105,13 @@
     .avatar {
       width: 22px;
       height: 22px;
+      min-width: 22px;
+      min-height: 22px;
       border-radius: 50%;
       flex-shrink: 0;
       background-color: #333;
+      object-fit: cover;
+      contain: paint;
     }
 
     /* Author info & Badges */
@@ -152,6 +161,8 @@
       display: flex;
       flex-direction: column;
       gap: 3px;
+      contain: layout style;
+      transform: translateZ(0);
     }
     .alert-card.superchat {
       background-color: rgba(239, 68, 68, 0.12);
@@ -286,12 +297,13 @@
       z-index: 10;
     }
 
-    /* Low resource overrides */
+    /* Low resource (Eco Mode) overrides */
     .low-res .avatar {
       display: none !important;
     }
     .low-res .message-row {
-      padding: 2px 4px;
+      padding: 3px 6px;
+      border-color: rgba(255, 255, 255, 0.08) !important;
     }
     .low-res * {
       box-shadow: none !important;
@@ -377,6 +389,9 @@
       <button id="dock-autoclear-btn" class="dock-action-btn" onclick="toggleAutoClear()" title="Toggle auto-pruning old chat">
         🧹 Auto: OFF
       </button>
+      <button id="dock-eco-btn" class="dock-action-btn" onclick="toggleEcoMode()" title="Toggle Eco Mode (hide avatars & GPU effects for 0% CPU footprint)">
+        ⚡ Eco: OFF
+      </button>
     </div>
     <div style="display: flex; align-items: center; gap: 8px;">
       <span id="kick-viewers-count-badge" style="display: none; align-items: center; gap: 4px; color: #53fc18; font-weight: bold;" title="Kick Viewers">
@@ -409,8 +424,9 @@
     const kickViewersCount = document.getElementById('kick-viewers-count');
     
     let isAutoScrollLocked = true;
+    let isProgrammaticScroll = false;
     let ws = null;
-    let maxMessages = 150;
+    let maxMessages = 50;
     let lowResourceMode = false;
     let clearOldChat = false;
     let clearOldChatLimit = 30;
@@ -419,6 +435,7 @@
     let checkingStream = false;
     let checkTimeout = null;
     let messageColorIndex = 0;
+    let sharedAudioCtx = null;
     const outlineColors = [
       'rgba(83, 252, 24, 0.45)',   // Kick Green
       'rgba(244, 63, 94, 0.45)',   // YouTube Red
@@ -448,13 +465,50 @@
       applyMaxMessages();
     }
 
+    function updateEcoUI() {
+      const btn = document.getElementById('dock-eco-btn');
+      if (btn) {
+        if (lowResourceMode) {
+          btn.innerText = '⚡ Eco: ON';
+          btn.style.color = '#38bdf8';
+          btn.style.borderColor = 'rgba(56, 189, 248, 0.4)';
+          btn.style.background = 'rgba(56, 189, 248, 0.12)';
+        } else {
+          btn.innerText = '⚡ Eco: OFF';
+          btn.style.color = 'var(--text-muted)';
+          btn.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+          btn.style.background = 'rgba(255, 255, 255, 0.05)';
+        }
+      }
+      if (lowResourceMode) {
+        document.body.classList.add('low-res');
+      } else {
+        document.body.classList.remove('low-res');
+      }
+      applyMaxMessages();
+    }
+
+    async function toggleEcoMode() {
+      try {
+        const res = await fetch('/toggle-low-resource');
+        const data = await res.json();
+        if (data.success) {
+          lowResourceMode = !!data.lowResourceMode;
+          updateEcoUI();
+        }
+      } catch (e) {
+        lowResourceMode = !lowResourceMode;
+        updateEcoUI();
+      }
+    }
+
     function applyMaxMessages() {
       if (clearOldChat) {
-        maxMessages = clearOldChatLimit || 30;
+        maxMessages = clearOldChatLimit || 25;
       } else if (lowResourceMode) {
-        maxMessages = 40;
+        maxMessages = 25;
       } else {
-        maxMessages = 150;
+        maxMessages = 50; // Optimized default: 50 messages maximum to keep DOM light in OBS
       }
       pruneExcessMessages();
     }
@@ -505,25 +559,42 @@
     }
 
     function pruneOldMessages() {
-      if (!clearOldChat) return;
+      if (!clearOldChat || container.children.length === 0) return;
 
-      pruneExcessMessages();
+      requestAnimationFrame(() => {
+        pruneExcessMessages();
 
-      if (clearOldChatTimeout > 0) {
-        const cutoff = Date.now() - (clearOldChatTimeout * 1000);
-        const pollCard = document.getElementById('yt_active_poll');
-        const children = Array.from(container.children);
-        for (const child of children) {
-          if (child === pollCard) continue;
-          const ts = parseInt(child.getAttribute('data-timestamp'), 10);
-          if (ts && ts < cutoff) {
-            container.removeChild(child);
+        if (clearOldChatTimeout > 0) {
+          const cutoff = Date.now() - (clearOldChatTimeout * 1000);
+          const pollCard = document.getElementById('yt_active_poll');
+          const children = Array.from(container.children);
+          for (const child of children) {
+            if (child === pollCard) continue;
+            const ts = parseInt(child.getAttribute('data-timestamp'), 10);
+            if (ts && ts < cutoff) {
+              container.removeChild(child);
+            }
           }
         }
-      }
+      });
     }
 
     setInterval(pruneOldMessages, 4000);
+
+    function getAudioContext() {
+      try {
+        if (!sharedAudioCtx) {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (AudioCtx) sharedAudioCtx = new AudioCtx();
+        }
+        if (sharedAudioCtx && sharedAudioCtx.state === 'suspended') {
+          sharedAudioCtx.resume().catch(() => {});
+        }
+        return sharedAudioCtx;
+      } catch (e) {
+        return null;
+      }
+    }
 
     function playAudio(category) {
       if (category === 'chat') {
@@ -551,7 +622,8 @@
 
     function playSyntheticTone(category, volume) {
       try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const ctx = getAudioContext();
+        if (!ctx) return;
         if (category === 'chat') {
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();
@@ -575,39 +647,30 @@
           gain1.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
           osc1.start();
           osc1.stop(ctx.currentTime + 0.2);
-          setTimeout(() => {
-            try {
-              const osc2 = ctx.createOscillator();
-              const gain2 = ctx.createGain();
-              osc2.connect(gain2);
-              gain2.connect(ctx.destination);
-              osc2.type = 'sine';
-              osc2.frequency.setValueAtTime(880, ctx.currentTime);
-              gain2.gain.setValueAtTime(volume, ctx.currentTime);
-              gain2.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
-              osc2.start();
-              osc2.stop(ctx.currentTime + 0.4);
-            } catch (e) {}
-          }, 120);
         }
       } catch (err) {
         console.error(err);
       }
     }
     
-    // Detect scrolling to toggle auto-scroll lock
+    // Detect scrolling to toggle auto-scroll lock without forced synchronous reflows
     container.addEventListener('scroll', () => {
+      if (isProgrammaticScroll) {
+        isProgrammaticScroll = false;
+        return;
+      }
       const threshold = 40; // px
-      const isAtBottom = container.scrollHeight - container.clientHeight - container.scrollTop < threshold;
+      const isAtBottom = (container.scrollHeight - container.clientHeight - container.scrollTop) < threshold;
       isAutoScrollLocked = isAtBottom;
       
       if (isAutoScrollLocked) {
         scrollNotice.style.display = 'none';
       }
-    });
+    }, { passive: true });
 
     function scrollToBottom(force = false) {
       if (isAutoScrollLocked || force) {
+        isProgrammaticScroll = true;
         container.scrollTop = container.scrollHeight;
         scrollNotice.style.display = 'none';
       }
@@ -627,12 +690,8 @@
         if (config.clearOldChatLimit !== undefined) clearOldChatLimit = config.clearOldChatLimit;
         if (config.clearOldChatTimeout !== undefined) clearOldChatTimeout = config.clearOldChatTimeout;
 
-        if (lowResourceMode) {
-          document.body.classList.add('low-res');
-        } else {
-          document.body.classList.remove('low-res');
-        }
         updateAutoClearUI();
+        updateEcoUI();
 
         ws = new WebSocket(`ws://127.0.0.1:${wsPort}`);
 
@@ -681,19 +740,13 @@
     function handleWebSocketMessage(payload) {
       const { event, data } = payload;
 
-      if (event === 'handshake') {
+      if (event === 'handshake' || event === 'settings_update') {
         if (data.clearOldChat !== undefined) clearOldChat = !!data.clearOldChat;
         if (data.clearOldChatLimit !== undefined) clearOldChatLimit = data.clearOldChatLimit;
         if (data.clearOldChatTimeout !== undefined) clearOldChatTimeout = data.clearOldChatTimeout;
-        if (data.lowResourceMode !== undefined) {
-          lowResourceMode = !!data.lowResourceMode;
-          if (lowResourceMode) {
-            document.body.classList.add('low-res');
-          } else {
-            document.body.classList.remove('low-res');
-          }
-        }
+        if (data.lowResourceMode !== undefined) lowResourceMode = !!data.lowResourceMode;
         updateAutoClearUI();
+        updateEcoUI();
 
         if (data.audioSettings) {
           audioSettings = data.audioSettings;
@@ -709,25 +762,6 @@
         }
         if (data.kickStream) {
           updateKickViewersUI(data.kickStream);
-        }
-      }
-
-      if (event === 'settings_update') {
-        if (data.clearOldChat !== undefined) clearOldChat = !!data.clearOldChat;
-        if (data.clearOldChatLimit !== undefined) clearOldChatLimit = data.clearOldChatLimit;
-        if (data.clearOldChatTimeout !== undefined) clearOldChatTimeout = data.clearOldChatTimeout;
-        if (data.lowResourceMode !== undefined) {
-          lowResourceMode = !!data.lowResourceMode;
-          if (lowResourceMode) {
-            document.body.classList.add('low-res');
-          } else {
-            document.body.classList.remove('low-res');
-          }
-        }
-        updateAutoClearUI();
-
-        if (data.audioSettings) {
-          audioSettings = data.audioSettings;
         }
       }
 
@@ -782,7 +816,7 @@
         if (data.type === 'poll' || data.type === 'poll_ended') {
           renderPollCard(data);
         } else {
-          appendMessage(data);
+          queueMessage(data);
           if (data.type === 'chat') {
             playAudio('chat');
           } else {
@@ -845,8 +879,10 @@
     }
 
     const recentMessagesCache = new Map();
+    let pendingMessages = [];
+    let renderScheduled = false;
 
-    function appendMessage(item) {
+    function queueMessage(item) {
       if (!item) return;
 
       // Prevent duplicates by ID
@@ -856,9 +892,6 @@
 
       // Prevent duplicate messages by content within 6 seconds (e.g. echo or multiple relay sources)
       const now = Date.now();
-      for (const [key, time] of recentMessagesCache.entries()) {
-        if (now - time > 10000) recentMessagesCache.delete(key);
-      }
       const rawText = (item.message || '').trim().toLowerCase();
       if (rawText) {
         const dedupeKey = `${(item.username || '').toLowerCase()}:${rawText}`;
@@ -866,24 +899,57 @@
           return;
         }
         recentMessagesCache.set(dedupeKey, now);
+        if (recentMessagesCache.size > 80) {
+          for (const [key, time] of recentMessagesCache.entries()) {
+            if (now - time > 8000) recentMessagesCache.delete(key);
+          }
+        }
       }
 
-      // Manage DOM size
+      pendingMessages.push(item);
+
+      if (!renderScheduled) {
+        renderScheduled = true;
+        requestAnimationFrame(flushPendingMessages);
+      }
+    }
+
+    function flushPendingMessages() {
+      renderScheduled = false;
+      if (pendingMessages.length === 0) return;
+
+      const items = pendingMessages;
+      pendingMessages = [];
+
+      const fragment = document.createDocumentFragment();
+      for (const item of items) {
+        const node = createMessageNode(item);
+        if (node) fragment.appendChild(node);
+      }
+
+      container.appendChild(fragment);
       pruneExcessMessages();
 
-      // Check scroll lock
-      const wasAtBottom = isAutoScrollLocked;
+      if (isAutoScrollLocked) {
+        isProgrammaticScroll = true;
+        container.scrollTop = container.scrollHeight;
+        scrollNotice.style.display = 'none';
+      } else {
+        scrollNotice.style.display = 'block';
+      }
+    }
 
+    function createMessageNode(item) {
       if (item.type === 'chat') {
         const row = document.createElement('div');
         row.className = 'message-row';
         row.setAttribute('data-timestamp', Date.now());
         if (item.id) row.id = item.id;
 
-        // Avatar
+        // Avatar (Only if not in Eco / Low Resource Mode)
         let avatarHtml = '';
         if (!lowResourceMode && item.avatar) {
-          avatarHtml = `<img class="avatar" src="${item.avatar}" onerror="this.style.display='none'">`;
+          avatarHtml = `<img class="avatar" src="${item.avatar}" width="22" height="22" loading="lazy" decoding="async" onerror="this.style.display='none'">`;
         }
 
         // Badges
@@ -911,7 +977,9 @@
         // Cycle through neon outline colors for visual distinction
         const outlineColor = outlineColors[messageColorIndex];
         messageColorIndex = (messageColorIndex + 1) % outlineColors.length;
-        row.style.borderColor = outlineColor;
+        if (!lowResourceMode) {
+          row.style.borderColor = outlineColor;
+        }
 
         row.innerHTML = `
           ${avatarHtml}
@@ -924,7 +992,7 @@
             <span class="message-text">${item.message || ''}</span>
           </div>
         `;
-        container.appendChild(row);
+        return row;
       } else {
         // Render Embedded Alert Cards (Super Chats, Stickers, Memberships, Gifts, Subscriptions/Follows)
         const card = document.createElement('div');
@@ -941,7 +1009,7 @@
           if (item.color) card.style.borderLeftColor = item.color;
           const titleLabel = item.type === 'sticker' ? '🎨 Super Sticker' : '💰 Super Chat';
           const msg = item.message ? `<div>${item.message}</div>` : '';
-          const stickerImg = item.stickerUrl ? `<div><img src="${item.stickerUrl}" style="max-height:50px;max-width:50px;object-fit:contain;margin-top:2px;" onerror="this.style.display='none'"></div>` : '';
+          const stickerImg = item.stickerUrl ? `<div><img src="${item.stickerUrl}" width="40" height="40" loading="lazy" decoding="async" style="max-height:40px;max-width:40px;object-fit:contain;margin-top:2px;" onerror="this.style.display='none'"></div>` : '';
           card.innerHTML = `
             <div class="alert-header">
               <span class="alert-title">${titleLabel}: ${item.username || 'Anonymous'} ${platformBadge}</span>
@@ -981,14 +1049,7 @@
           `;
         }
 
-        container.appendChild(card);
-      }
-
-
-      if (wasAtBottom) {
-        scrollToBottom();
-      } else {
-        scrollNotice.style.display = 'block';
+        return card;
       }
     }
 

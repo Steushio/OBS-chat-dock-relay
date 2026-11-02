@@ -924,6 +924,9 @@ function setupIpcListeners() {
         clearChatOptionsGroup.style.display = toggleClearOldChat.checked ? 'block' : 'none';
       }
     }
+    if (data && data.lowResourceMode !== undefined && toggleLowResource) {
+      toggleLowResource.checked = !!data.lowResourceMode;
+    }
   });
 }
 

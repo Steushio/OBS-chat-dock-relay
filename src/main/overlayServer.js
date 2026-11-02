@@ -103,6 +103,34 @@ class OverlayServer {
       }
     });
 
+    // Route to toggle Low Resource (Eco) Mode directly from OBS dock
+    this.app.get('/toggle-low-resource', (req, res) => {
+      try {
+        const configStore = require('./configStore');
+        const websocketServer = require('./websocketServer');
+        const currentState = !!configStore.get('lowResourceMode');
+        const newState = !currentState;
+        configStore.set('lowResourceMode', newState);
+
+        websocketServer.broadcast('settings_update', {
+          lowResourceMode: newState
+        });
+
+        try {
+          const { BrowserWindow } = require('electron');
+          BrowserWindow.getAllWindows().forEach(w => {
+            if (!w.isDestroyed()) {
+              w.webContents.send('settings-updated', { lowResourceMode: newState });
+            }
+          });
+        } catch (e) {}
+
+        res.json({ success: true, lowResourceMode: newState });
+      } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+      }
+    });
+
     // Root status API
     this.app.get('/status', (req, res) => {
       const configStore = require('./configStore');
