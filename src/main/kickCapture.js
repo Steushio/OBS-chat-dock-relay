@@ -6,6 +6,7 @@ class KickCapture {
   constructor() {
     this.ws = null;
     this.chatroomId = '33438685';
+    this.channelId = '33727011';
     this.username = 'steushio';
     this.isEnabled = false;
     this.tempWindow = null;
@@ -14,6 +15,8 @@ class KickCapture {
     this.viewers = 0;
     this.isLive = false;
     this.lastStatusText = 'Idle';
+    this.pusherAppKey = '34bf7a0ff419a2a775b9';
+    this.pusherCluster = 'us2';
   }
 
   async start(username, retryCount = 0) {
@@ -172,7 +175,8 @@ class KickCapture {
                   if (channel?.chatroom?.id) {
                     return {
                       chatroom: channel.chatroom,
-                      livestream: channel.livestream
+                      livestream: channel.livestream,
+                      channelId: channel.id
                     };
                   }
                 }
@@ -193,7 +197,11 @@ class KickCapture {
                     });
                     if (res.ok) {
                       const data = await res.json();
-                      if (data?.chatroom?.id) return data;
+                      if (data?.chatroom?.id) return {
+                        chatroom: data.chatroom,
+                        livestream: data.livestream,
+                        channelId: data.id || data.channel_id
+                      };
                     }
                   } catch (e) {}
                   await new Promise(r => setTimeout(r, 1200));
@@ -212,13 +220,18 @@ class KickCapture {
           const chatroomId = json?.chatroom?.id;
           const isLive = !!json?.livestream?.is_live;
           const viewers = isLive ? (json?.livestream?.viewer_count ?? json?.livestream?.viewers ?? 0) : 0;
+          const channelId = json?.channelId || json?.id || null;
+          if (channelId) {
+            this.channelId = channelId;
+          }
           if (chatroomId) {
             this.chatroomId = chatroomId;
             try {
               const configStore = require('./configStore');
               configStore.set('kickChatroomId', chatroomId);
+              if (channelId) configStore.set('kickChannelId', channelId);
             } catch (e) {}
-            resolve({ chatroomId, viewers, isLive });
+            resolve({ chatroomId, viewers, isLive, channelId });
           } else {
             reject(new Error('Channel does not exist or chatroom ID not found'));
           }
@@ -245,17 +258,77 @@ class KickCapture {
     });
   }
 
-  connectWebSocket() {
+  async fetchPusherConfig(channelId = this.channelId) {
+    if (!channelId) return null;
+    try {
+      const https = require('https');
+      const postData = JSON.stringify({
+        client: { id: 'obs-relay', type: 'web' },
+        capabilities: { accepted_providers: [{ provider: 'pusher' }] }
+      });
+
+      const config = await new Promise((resolve) => {
+        const req = https.request(`https://web.kick.com/api/v1/realtime/channels/${channelId}/chat/connection`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(postData),
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+          },
+          timeout: 6000
+        }, (res) => {
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => {
+            try {
+              const json = JSON.parse(data);
+              const conn = json?.data?.connections?.find(c => c.provider === 'pusher');
+              if (conn?.credentials?.app_key) {
+                resolve({
+                  appKey: conn.credentials.app_key,
+                  cluster: conn.credentials.cluster || 'us2'
+                });
+                return;
+              }
+            } catch (e) {}
+            resolve(null);
+          });
+        });
+        req.on('error', () => resolve(null));
+        req.on('timeout', () => { req.destroy(); resolve(null); });
+        req.write(postData);
+        req.end();
+      });
+      return config;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async connectWebSocket() {
     if (!this.isEnabled) return;
     if (this.ws) {
       this.ws.close();
     }
 
-    const pusherUrl = 'wss://ws-us2.pusher.com/app/32cbd69e4b950bf97679?protocol=7&client=js&version=8.4.0-rc2&flash=false';
+    let appKey = this.pusherAppKey || '34bf7a0ff419a2a775b9';
+    let cluster = this.pusherCluster || 'us2';
+
+    try {
+      const resolved = await this.fetchPusherConfig(this.channelId || '33727011');
+      if (resolved?.appKey) {
+        appKey = resolved.appKey;
+        cluster = resolved.cluster || 'us2';
+        this.pusherAppKey = appKey;
+        this.pusherCluster = cluster;
+      }
+    } catch (e) {}
+
+    const pusherUrl = `wss://ws-${cluster}.pusher.com/app/${appKey}?protocol=7&client=js&version=8.4.0-rc2&flash=false`;
     this.ws = new WebSocket(pusherUrl);
 
     this.ws.on('open', () => {
-      websocketServer.logSystem('[Kick] Pusher WebSocket connected!');
+      websocketServer.logSystem(`[Kick] Pusher WebSocket connected (Key: ${appKey.substring(0, 6)}..., Cluster: ${cluster})!`);
       this.updateStatusUI('Connected');
       
       // Subscribe to chatroom
@@ -278,8 +351,9 @@ class KickCapture {
       }
     });
 
-    this.ws.on('close', () => {
-      websocketServer.logSystem('[Kick] Pusher WebSocket disconnected');
+    this.ws.on('close', (code, reason) => {
+      const reasonStr = reason ? reason.toString() : '';
+      websocketServer.logSystem(`[Kick] Pusher WebSocket disconnected (code: ${code}${reasonStr ? ', reason: ' + reasonStr : ''})`);
       if (this.isEnabled) {
         this.updateStatusUI('Reconnecting...');
         this.reconnectTimeout = setTimeout(() => this.connectWebSocket(), 5000);
@@ -304,22 +378,30 @@ class KickCapture {
       return;
     }
 
-    if (event === 'App\\Events\\ChatMessageEvent') {
+    const isChat = 
+      event === 'App\\Events\\ChatMessageEvent' || 
+      event === 'App\\Events\\ChatMessageSentEvent' ||
+      event === 'ChatMessageEvent' ||
+      event === 'ChatMessageSentEvent';
+
+    if (isChat) {
       if (data.chatroom_id) {
         this.chatroomId = data.chatroom_id;
       }
       const id = data.id || `kick_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-      const username = data.sender?.username || 'Anonymous';
-      const message = data.content || '';
+      const username = data.sender?.username || data.user?.username || data.username || 'Anonymous';
+      const message = data.content || data.message?.content || (typeof data.message === 'string' ? data.message : '');
       
       // Map badges
+      const rawBadges = data.sender?.identity?.badges || data.user?.identity?.badges || data.badges || [];
       const badges = [];
-      if (data.sender?.identity?.badges) {
-        data.sender.identity.badges.forEach(b => {
-          if (b.type === 'moderator') badges.push('moderator');
-          else if (b.type === 'broadcaster' || b.type === 'owner') badges.push('owner');
-          else if (b.type === 'subscriber') badges.push('member');
-          else badges.push(b.type);
+      if (Array.isArray(rawBadges)) {
+        rawBadges.forEach(b => {
+          const type = (b && typeof b === 'object') ? b.type : b;
+          if (type === 'moderator') badges.push('moderator');
+          else if (type === 'broadcaster' || type === 'owner') badges.push('owner');
+          else if (type === 'subscriber') badges.push('member');
+          else if (type) badges.push(type);
         });
       }
 
@@ -346,7 +428,7 @@ class KickCapture {
         console.error('[Kick WS] Error routing chat to ollamaBot:', err);
       }
     } 
-    else if (event === 'App\\Events\\SubscriptionEvent') {
+    else if (event === 'App\\Events\\SubscriptionEvent' || event === 'SubscriptionEvent') {
       const id = `kick_sub_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
       const username = data.username || 'Subscriber';
       const months = data.duration || 1;
@@ -366,7 +448,7 @@ class KickCapture {
       websocketServer.broadcast('chat', alertData);
       websocketServer.logSystem(`[Kick Alert] New Subscriber: ${username} (Month ${months})`);
     } 
-    else if (event === 'App\\Events\\GiftedSubscriptionsEvent') {
+    else if (event === 'App\\Events\\GiftedSubscriptionsEvent' || event === 'GiftedSubscriptionsEvent') {
       const id = `kick_gift_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
       const gifter = data.gifter_username || 'Gifter';
       const count = data.gifted_usernames?.length || 1;
@@ -386,7 +468,7 @@ class KickCapture {
       websocketServer.broadcast('chat', alertData);
       websocketServer.logSystem(`[Kick Alert] Gift subscription: ${gifter} gifted ${count} subs`);
     }
-    else if (event === 'App\\Events\\FollowEvent') {
+    else if (event === 'App\\Events\\FollowEvent' || event === 'FollowEvent') {
       const id = `kick_follow_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
       const username = data.username || 'Follower';
       const message = 'Just followed!';

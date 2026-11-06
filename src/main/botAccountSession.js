@@ -658,8 +658,8 @@ class BotAccountSession {
 
     websocketServer.logSystem(`${tag} Prewarming background chat session for: ${username}...`);
     const win = new BrowserWindow({
-      width: 380,
-      height: 550,
+      width: 440,
+      height: 720,
       show: false,
       skipTaskbar: true,
       frame: true,
@@ -670,9 +670,7 @@ class BotAccountSession {
         contextIsolation: true,
         sandbox: true,
         backgroundThrottling: false,
-        images: false,
-        webgl: false,
-        enableWebSQL: false
+        paintWhenInitiallyHidden: true
       }
     });
 
