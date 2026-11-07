@@ -16,7 +16,7 @@ fun DockWebView(
     modifier: Modifier = Modifier
 ) {
     AndroidView(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier,
         factory = { context ->
             WebView(context).apply {
                 setBackgroundColor(Color.parseColor("#18181b"))

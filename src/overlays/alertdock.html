@@ -76,9 +76,6 @@
       display: flex;
       flex-direction: column;
       gap: 6px;
-      contain: content;
-      transform: translateZ(0);
-      will-change: scroll-position;
     }
 
     /* Alert Card Design */
@@ -91,8 +88,8 @@
       display: flex;
       flex-direction: column;
       gap: 4px;
-      contain: layout style;
-      transform: translateZ(0);
+      width: 100%;
+      box-sizing: border-box;
     }
 
     .alert-card.superchat { border-left-color: var(--color-superchat); }
