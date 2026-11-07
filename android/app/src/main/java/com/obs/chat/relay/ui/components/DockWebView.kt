@@ -16,9 +16,13 @@ fun DockWebView(
     modifier: Modifier = Modifier
 ) {
     AndroidView(
-        modifier = modifier,
+        modifier = modifier.fillMaxSize(),
         factory = { context ->
             WebView(context).apply {
+                layoutParams = android.view.ViewGroup.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                )
                 setBackgroundColor(Color.parseColor("#18181b"))
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
