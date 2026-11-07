@@ -843,6 +843,7 @@
           for (const item of data.recentChats) {
             queueMessage(item);
           }
+          flushPendingMessages();
         }
       }
 
@@ -972,18 +973,18 @@
         return;
       }
 
-      // Prevent duplicate messages by content within 6 seconds (e.g. echo or multiple relay sources)
+      // Prevent duplicate messages by content within 2.5 seconds
       const now = Date.now();
       const rawText = (item.message || '').trim().toLowerCase();
       if (rawText) {
         const dedupeKey = `${(item.username || '').toLowerCase()}:${rawText}`;
-        if (recentMessagesCache.has(dedupeKey) && (now - recentMessagesCache.get(dedupeKey) < 6000)) {
+        if (recentMessagesCache.has(dedupeKey) && (now - recentMessagesCache.get(dedupeKey) < 2500)) {
           return;
         }
         recentMessagesCache.set(dedupeKey, now);
         if (recentMessagesCache.size > 80) {
           for (const [key, time] of recentMessagesCache.entries()) {
-            if (now - time > 8000) recentMessagesCache.delete(key);
+            if (now - time > 5000) recentMessagesCache.delete(key);
           }
         }
       }
@@ -992,7 +993,10 @@
 
       if (!renderScheduled) {
         renderScheduled = true;
-        requestAnimationFrame(flushPendingMessages);
+        if (window.requestAnimationFrame) {
+          requestAnimationFrame(flushPendingMessages);
+        }
+        setTimeout(flushPendingMessages, 30);
       }
     }
 

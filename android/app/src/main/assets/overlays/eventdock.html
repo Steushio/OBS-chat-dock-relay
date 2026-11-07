@@ -223,7 +223,7 @@
               payload.data.recentLogs.forEach(appendLog);
             }
           } 
-          else if (payload.event === 'log') {
+          else if (payload.event === 'log' || payload.event === 'system_log') {
             appendLog(payload.data);
           }
         };
