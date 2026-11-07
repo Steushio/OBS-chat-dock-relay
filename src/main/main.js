@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -7,12 +7,6 @@ const fs = require('fs');
 app.disableHardwareAcceleration();
 
 // Optimize Chromium flags for minimal CPU footprint
-app.commandLine.appendSwitch('js-flags', '--max-old-space-size=128');
-app.commandLine.appendSwitch('disable-gpu');
-app.commandLine.appendSwitch('disable-gpu-rasterization');
-app.commandLine.appendSwitch('disable-software-rasterizer');
-app.commandLine.appendSwitch('disable-3d-apis');
-app.commandLine.appendSwitch('disable-accelerated-2d-canvas');
 app.commandLine.appendSwitch('disable-breakpad');
 app.commandLine.appendSwitch('disable-component-update');
 app.commandLine.appendSwitch('disable-ipc-flooding-protection');
@@ -137,15 +131,16 @@ function setupDashboardRelays() {
 
 // 3. Create Main Dashboard Window
 function createMainWindow(startMinimized = false) {
-  const bounds = configStore.get('windowBounds');
+  const bounds = configStore.get('windowBounds') || { width: 1000, height: 750 };
+  const iconPath = path.join(__dirname, '..', 'assets', 'icon.png');
 
   mainWindow = new BrowserWindow({
     width: bounds.width,
     height: bounds.height,
     minWidth: 800,
     minHeight: 600,
-    show: !startMinimized,
-    icon: path.join(__dirname, '..', 'assets', 'icon.png'),
+    show: false,
+    icon: fs.existsSync(iconPath) ? iconPath : undefined,
     backgroundColor: '#09090b', // obsidian black matching dashboard UI
     webPreferences: {
       nodeIntegration: true, // Allow IPC communication safely
@@ -157,6 +152,13 @@ function createMainWindow(startMinimized = false) {
   mainWindow.setMenu(null); // Clean menu bars
 
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'dashboard.html'));
+
+  mainWindow.once('ready-to-show', () => {
+    if (!startMinimized) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
 
   // Save window dimensions on resize
   mainWindow.on('resize', () => {
@@ -182,77 +184,82 @@ function createMainWindow(startMinimized = false) {
 
 // 4. Create System Tray Icon & Context Menu
 function createTray() {
-  // Use a fallback solid png path inside overlays for the tray icon
-  const iconPath = path.join(__dirname, '..', 'overlays', 'favicon.png');
-  
-  // Make sure at least a blank file exists to prevent Electron error logs
-  if (!fs.existsSync(iconPath)) {
-    const parentDir = path.dirname(iconPath);
-    if (!fs.existsSync(parentDir)) {
-      fs.mkdirSync(parentDir, { recursive: true });
+  try {
+    let iconPath = path.join(__dirname, '..', 'assets', 'icon.png');
+    if (!fs.existsSync(iconPath)) {
+      iconPath = path.join(__dirname, '..', 'overlays', 'favicon.png');
     }
-    // Write 1px transparent PNG buffer as dummy
-    const dummyPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
-    fs.writeFileSync(iconPath, dummyPng);
-  }
+    
+    let trayIcon = null;
+    if (fs.existsSync(iconPath)) {
+      const img = nativeImage.createFromPath(iconPath);
+      if (!img.isEmpty()) {
+        trayIcon = img.resize({ width: 16, height: 16 });
+      }
+    }
+    
+    if (!trayIcon) {
+      return;
+    }
 
-  tray = new Tray(iconPath);
-  tray.setToolTip('OBS Chat Relay');
+    tray = new Tray(trayIcon);
+    tray.setToolTip('OBS Chat Relay');
 
-  const contextMenu = Menu.buildFromTemplate([
-    {
-      label: 'Open Dashboard',
-      click: () => {
-        if (mainWindow) {
-          mainWindow.show();
-          mainWindow.focus();
-        } else {
-          createMainWindow();
+    const contextMenu = Menu.buildFromTemplate([
+      {
+        label: 'Open Dashboard',
+        click: () => {
+          if (mainWindow) {
+            mainWindow.show();
+            mainWindow.focus();
+          } else {
+            createMainWindow();
+          }
+        }
+      },
+      { type: 'separator' },
+      {
+        label: 'Start Monitor',
+        click: () => {
+          toggleBackgroundMonitor(true);
+        }
+      },
+      {
+        label: 'Stop Monitor',
+        click: () => {
+          toggleBackgroundMonitor(false);
+        }
+      },
+      { type: 'separator' },
+      {
+        label: 'Quit Application',
+        click: () => {
+          isQuitting = true;
+          botAccountSession.isQuitting = true;
+          chatCapture.stopCapture();
+          streamManager.stopMonitoring();
+          kickCapture.stop();
+          overlayServer.stop();
+          websocketServer.stop();
+          app.quit();
         }
       }
-    },
-    { type: 'separator' },
-    {
-      label: 'Start Monitor',
-      click: () => {
-        toggleBackgroundMonitor(true);
-      }
-    },
-    {
-      label: 'Stop Monitor',
-      click: () => {
-        toggleBackgroundMonitor(false);
-      }
-    },
-    { type: 'separator' },
-    {
-      label: 'Quit Application',
-      click: () => {
-        isQuitting = true;
-        botAccountSession.isQuitting = true;
-        chatCapture.stopCapture();
-        streamManager.stopMonitoring();
-        kickCapture.stop();
-        overlayServer.stop();
-        websocketServer.stop();
-        app.quit();
-      }
-    }
-  ]);
+    ]);
 
-  tray.setContextMenu(contextMenu);
+    tray.setContextMenu(contextMenu);
 
-  // Toggle show/hide on double-click
-  tray.on('double-click', () => {
-    if (mainWindow && mainWindow.isVisible()) {
-      mainWindow.hide();
-    } else if (mainWindow) {
-      mainWindow.show();
-      mainWindow.focus();
-    } else {
-      createMainWindow();
-    }
-  });
+    // Toggle show/hide on double-click
+    tray.on('double-click', () => {
+      if (mainWindow && mainWindow.isVisible()) {
+        mainWindow.hide();
+      } else if (mainWindow) {
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    });
+  } catch (err) {
+    console.warn('System tray failed to initialize:', err.message);
+  }
 }
 
 // 5. Toggle Background Scanning

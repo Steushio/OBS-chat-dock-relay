@@ -12,7 +12,7 @@
   <a href="https://discord.com/invite/UBsenpp"><img src="https://img.shields.io/badge/Discord-Join%20Server-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
   <a href="https://www.youtube.com/@steushio"><img src="https://img.shields.io/badge/YouTube-Subscribe-FF0000?logo=youtube&logoColor=white" alt="YouTube"></a>
   <a href="https://steushio.github.io/steushio-stream-support/coffee.html"><img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-☕%20Donate-FFDD00?logo=buymeacoffee&logoColor=black" alt="Donate"></a>
-  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="Platform">
+  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android-blue" alt="Platform">
   <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
 </p>
 
@@ -72,6 +72,19 @@ curl -fsSL https://raw.githubusercontent.com/Steushio/OBS-chat-dock-relay/main/i
 ```
 
 > Installs Node.js via Homebrew (or the official .pkg installer), downloads the app, and creates an entry in your **Applications folder & Launchpad**.
+
+### 📱 Android (Mobile Companion)
+
+The Android version runs natively on Android devices, hosting local HTTP & WebSocket relay servers and capturing YouTube & Kick chat on the go.
+
+```bash
+cd android
+./gradlew assembleDebug
+# Install to connected device:
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+See [android/README.md](android/README.md) for full instructions and features.
 
 ---
 
@@ -156,6 +169,30 @@ OBS-chat-dock-relay/
 ├── package.json
 └── icon.png               # App icon (512x512)
 ```
+
+---
+
+## 📱 Mobile App & Zero-Config OBS Plugin (No Port Forwarding or Tailscale)
+
+Stream your live chat and alerts from your Android phone over **4G/5G mobile cellular data** to your PC running OBS without ever configuring your router's port forwarding and without installing Tailscale or VPN apps!
+
+### 1. In OBS Studio:
+- **Option A (OBS Custom Browser Dock with QR Code)**:
+  - In OBS Studio, click **Docks** ➜ **Custom Browser Docks...**
+  - Name: `Mobile Connect Dock`
+  - URL: `http://127.0.0.1:3000/tunnel-dock.html`
+  - A dockable window opens directly inside OBS Studio showing an active public Host & Port (or secure tunnel URL) and a scannable **QR Code**!
+- **Option B (OBS Studio Lua/Python Plugin)**:
+  - In OBS Studio, click **Tools** ➜ **Scripts** ➜ Click **`+`**
+  - Select [`obs-plugin/obs_mobile_relay.lua`](file:///c:/Users/Work/Documents/OBS-chat-dock-relay/obs-plugin/obs_mobile_relay.lua) (or run [`obs-plugin/install_obs_plugin.bat`](file:///c:/Users/Work/Documents/OBS-chat-dock-relay/obs-plugin/install_obs_plugin.bat) to install it automatically).
+  - Directly inside the OBS Scripts window, you can view the active mobile connect URL, start/stop the tunnel, and copy the connection string.
+
+### 2. On Your Android Device:
+- Open the **OBS Chat Relay** app.
+- Go to the **Remote Sharing** tab.
+- Tap **📋 Paste** to paste the copied host/URL from OBS, or scan the QR code from your screen.
+- Tap **Test Connection** ➜ Turn on the switch.
+- Your phone will instantly stream live YouTube/Kick chats and alerts over mobile cellular data straight to your OBS browser sources!
 
 ---
 

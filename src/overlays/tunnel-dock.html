@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OBS Mobile Gateway & Tunnel</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <style>
+    :root {
+      --bg: #0e0e11;
+      --card-bg: #18181b;
+      --card-border: #27272a;
+      --primary: #9146ff;
+      --primary-hover: #772ce8;
+      --text: #efeff1;
+      --text-muted: #adadb8;
+      --success: #00f59b;
+      --warning: #ffb800;
+      --danger: #eb0400;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      padding: 14px;
+      font-size: 13px;
+      overflow-x: hidden;
+      user-select: none;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .title-row h1 {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: -0.2px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 600;
+      background: #27272a;
+      color: var(--text-muted);
+    }
+
+    .status-badge.online {
+      background: rgba(0, 245, 155, 0.15);
+      color: var(--success);
+      border: 1px solid rgba(0, 245, 155, 0.3);
+    }
+
+    .status-badge.starting {
+      background: rgba(255, 184, 0, 0.15);
+      color: var(--warning);
+      border: 1px solid rgba(255, 184, 0, 0.3);
+    }
+
+    .status-badge.error {
+      background: rgba(235, 4, 0, 0.15);
+      color: var(--danger);
+      border: 1px solid rgba(235, 4, 0, 0.3);
+    }
+
+    .pulse-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 6px currentColor;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+
+    .card-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      font-weight: 700;
+      color: var(--text-muted);
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .qr-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 0;
+      text-align: center;
+    }
+
+    .qr-box {
+      background: #ffffff;
+      padding: 12px;
+      border-radius: 12px;
+      border: 2px solid var(--primary);
+      display: inline-block;
+      margin-bottom: 8px;
+      box-shadow: 0 4px 20px rgba(145, 70, 255, 0.25);
+    }
+
+    .qr-box img {
+      display: block;
+      width: 200px;
+      height: 200px;
+      border-radius: 4px;
+    }
+
+    .qr-hint {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .info-tile {
+      background: #121214;
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      position: relative;
+    }
+
+    .info-tile .label {
+      font-size: 10px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+
+    .info-tile .val {
+      font-size: 12px;
+      font-weight: 700;
+      color: #fff;
+      word-break: break-all;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 4px;
+    }
+
+    .copy-btn {
+      background: #27272a;
+      border: none;
+      color: var(--text);
+      font-size: 10px;
+      padding: 3px 6px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .copy-btn:hover {
+      background: var(--primary);
+    }
+
+    .device-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(0, 245, 155, 0.08);
+      border: 1px solid rgba(0, 245, 155, 0.2);
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin-top: 8px;
+    }
+
+    .device-info {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .device-status {
+      font-size: 11px;
+      color: var(--success);
+      font-weight: 600;
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .btn {
+      flex: 1;
+      background: #27272a;
+      border: 1px solid var(--card-border);
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 8px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.15s;
+    }
+
+    .btn:hover {
+      background: #3f3f46;
+    }
+
+    .btn.primary {
+      background: var(--primary);
+      border-color: var(--primary);
+    }
+
+    .btn.primary:hover {
+      background: var(--primary-hover);
+    }
+
+    .mode-tabs {
+      display: flex;
+      background: #121214;
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      padding: 2px;
+      margin-bottom: 10px;
+    }
+
+    .mode-tab {
+      flex: 1;
+      text-align: center;
+      padding: 5px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      border-radius: 4px;
+      cursor: pointer;
+      color: var(--text-muted);
+      transition: all 0.15s;
+    }
+
+    .mode-tab.active {
+      background: var(--primary);
+      color: #fff;
+    }
+
+    .notice {
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.4;
+      background: #141416;
+      border-left: 3px solid var(--primary);
+      padding: 6px 10px;
+      border-radius: 0 4px 4px 0;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="title-row">
+      <span>📱</span>
+      <h1>OBS Mobile Connect</h1>
+    </div>
+    <div id="statusBadge" class="status-badge starting">
+      <span class="pulse-dot"></span>
+      <span id="statusText">Starting Tunnel...</span>
+    </div>
+  </div>
+
+  <div class="mode-tabs">
+    <div id="tabCloud" class="mode-tab active" onclick="switchMode('cloud')">🌐 Cloud Tunnel (4G/5G Cellular)</div>
+    <div id="tabLocal" class="mode-tab" onclick="switchMode('local')">📶 Same Wi-Fi (Local LAN)</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">
+      <span>Scan with Mobile App</span>
+      <span id="modeLabel" style="font-size: 10px; color: var(--primary); font-weight: bold;">NO PORT FORWARDING NEEDED</span>
+    </div>
+    <div class="qr-container">
+      <div class="qr-box">
+        <img id="qrImage" src="" alt="Scan QR Code in Mobile App" style="display: none;">
+        <div id="qrLoading" style="padding: 40px 20px; color: var(--text-muted);">Generating Connection QR...</div>
+      </div>
+      <div class="qr-hint">Open Android App ➜ Remote Sharing ➜ Scan or Paste Address</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Connection Parameters</div>
+    
+    <div class="grid-2">
+      <div class="info-tile">
+        <div class="label">Host / IP</div>
+        <div class="val">
+          <span id="valHost">Loading...</span>
+          <button class="copy-btn" onclick="copyText('valHost')">Copy</button>
+        </div>
+      </div>
+      <div class="info-tile">
+        <div class="label">Port</div>
+        <div class="val">
+          <span id="valPort">443</span>
+          <button class="copy-btn" onclick="copyText('valPort')">Copy</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="info-tile" style="margin-bottom: 8px;">
+      <div class="label">Complete WebSocket URL (For Mobile App)</div>
+      <div class="val" style="font-size: 11px;">
+        <span id="valWsUrl" style="word-break: break-all;">Loading...</span>
+        <button class="copy-btn" onclick="copyText('valWsUrl')">Copy</button>
+      </div>
+    </div>
+
+    <div id="connectedDeviceBox" class="device-banner" style="display: none;">
+      <div class="device-info">
+        <span>📲</span>
+        <span id="deviceName">Connected Mobile</span>
+      </div>
+      <div class="device-status">● Live Streaming Active</div>
+    </div>
+
+    <div class="btn-group">
+      <button class="btn primary" onclick="copyText('valWsUrl')">📋 Copy URL</button>
+      <a href="/download" download class="btn" style="text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 4px;">📥 Download APK</a>
+      <button class="btn" onclick="restartTunnel()">🔄 Restart</button>
+    </div>
+  </div>
+
+  <div class="notice">
+    💡 <strong>Zero Setup:</strong> Connects over 4G/5G mobile cellular data without configuring your Wi-Fi router or installing Tailscale on your phone.
+  </div>
+
+  <script>
+    let currentMode = 'cloud';
+    let pollInterval = null;
+
+    async function fetchStatus() {
+      try {
+        const res = await fetch('/api/tunnel-status');
+        if (!res.ok) throw new Error('Status fetch failed');
+        const data = await res.json();
+        updateUI(data);
+      } catch (e) {
+        document.getElementById('statusBadge').className = 'status-badge error';
+        document.getElementById('statusText').textContent = 'Relay Offline';
+      }
+    }
+
+    async function fetchQR() {
+      try {
+        const res = await fetch('/api/tunnel-qr');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.qr) {
+            const qrImg = document.getElementById('qrImage');
+            qrImg.src = data.qr;
+            qrImg.style.display = 'block';
+            document.getElementById('qrLoading').style.display = 'none';
+          }
+        }
+      } catch (e) {}
+    }
+
+    function updateUI(data) {
+      const statusBadge = document.getElementById('statusBadge');
+      const statusText = document.getElementById('statusText');
+      const valHost = document.getElementById('valHost');
+      const valPort = document.getElementById('valPort');
+      const valWsUrl = document.getElementById('valWsUrl');
+      const deviceBox = document.getElementById('connectedDeviceBox');
+      const deviceName = document.getElementById('deviceName');
+
+      if (data.status === 'online') {
+        statusBadge.className = 'status-badge online';
+        statusText.textContent = data.mode === 'cloud' ? 'Tunnel Online (4G/5G)' : 'Local Wi-Fi Online';
+      } else if (data.status === 'starting') {
+        statusBadge.className = 'status-badge starting';
+        statusText.textContent = 'Establishing Tunnel...';
+      } else {
+        statusBadge.className = 'status-badge error';
+        statusText.textContent = data.errorMessage || 'Tunnel Offline';
+      }
+
+      valHost.textContent = data.host || (data.mode === 'cloud' ? 'Resolving...' : data.localIp);
+      valPort.textContent = data.port || (data.mode === 'cloud' ? 443 : data.localPort);
+      valWsUrl.textContent = data.wsUrl || `ws://${data.localIp}:${data.localPort}`;
+
+      // Connected mobile devices
+      if (data.connectedDevices && data.connectedDevices.length > 0) {
+        const dev = data.connectedDevices[0];
+        deviceBox.style.display = 'flex';
+        deviceName.textContent = `${dev.device || 'Android Phone'} (${dev.ip || 'Connected'})`;
+      } else {
+        deviceBox.style.display = 'none';
+      }
+    }
+
+    async function switchMode(mode) {
+      currentMode = mode;
+      document.getElementById('tabCloud').className = mode === 'cloud' ? 'mode-tab active' : 'mode-tab';
+      document.getElementById('tabLocal').className = mode === 'local' ? 'mode-tab active' : 'mode-tab';
+      document.getElementById('modeLabel').textContent = mode === 'cloud' ? 'NO PORT FORWARDING NEEDED' : 'REQUIRES SAME WI-FI';
+
+      document.getElementById('statusBadge').className = 'status-badge starting';
+      document.getElementById('statusText').textContent = 'Switching mode...';
+
+      try {
+        await fetch('/api/tunnel-start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: mode, localPort: 3000 })
+        });
+        await fetchStatus();
+        await fetchQR();
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function restartTunnel() {
+      document.getElementById('statusBadge').className = 'status-badge starting';
+      document.getElementById('statusText').textContent = 'Restarting Tunnel...';
+      try {
+        await fetch('/api/tunnel-start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: currentMode, localPort: 3000 })
+        });
+        await fetchStatus();
+        await fetchQR();
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function copyText(elemId) {
+      const text = document.getElementById(elemId).textContent;
+      navigator.clipboard.writeText(text).then(() => {
+        const btn = event.target;
+        const oldText = btn.textContent;
+        btn.textContent = '✓ Copied';
+        setTimeout(() => { btn.textContent = oldText; }, 1500);
+      });
+    }
+
+    // Auto-poll status
+    fetchStatus();
+    fetchQR();
+    pollInterval = setInterval(() => {
+      fetchStatus();
+    }, 3000);
+  </script>
+</body>
+</html>

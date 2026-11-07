@@ -9,6 +9,13 @@ class OllamaBot {
   constructor() {
     this.defaults = {
       enabled: false,
+      aiProvider: 'nvidia', // 'nvidia' | 'opencode_zen' | 'ollama'
+      nvidiaApiKey: '',
+      nvidiaModel: 'meta/llama-3.3-70b-instruct',
+      opencodeZenApiKey: '',
+      opencodeZenModel: 'big-pickle',
+      opencodeZenFreeOnly: true,
+      opencodeZenAutoSwitch: true,
       ollamaUrl: 'http://127.0.0.1:11434',
       model: 'qwen2.5:3b',
       botName: 'Cutie Bot',
@@ -70,6 +77,10 @@ class OllamaBot {
     ipcMain.handle('save-ollama-settings', (event, settings) => {
       this.saveSettings(settings);
       return { success: true };
+    });
+
+    ipcMain.handle('fetch-opencode-models', async (event, freeOnly = true) => {
+      return await this.fetchOpenCodeModels(freeOnly);
     });
 
     ipcMain.handle('fetch-ollama-models', async (event, url) => {
@@ -193,6 +204,34 @@ class OllamaBot {
   // Backwards compatibility helper
   isIgnoredUser(username) {
     return this.isSelfOrBot(username) || this.isBroadcaster(username);
+  }
+
+  // Fetch models from OpenCode Zen catalog
+  async fetchOpenCodeModels(freeOnly = true) {
+    try {
+      const response = await fetch('https://opencode.ai/zen/v1/models');
+      if (response.ok) {
+        const json = await response.json();
+        const list = json.data || [];
+        const result = [];
+        for (const m of list) {
+          const isZeroCost = m.cost && m.cost.text && m.cost.text.input && m.cost.text.input.price === 0 && m.cost.text.output && m.cost.text.output.price === 0;
+          const hasFreeInId = (m.id || '').toLowerCase().includes('free') || (m.name || '').toLowerCase().includes('free');
+          const isFree = isZeroCost || hasFreeInId;
+          if (!freeOnly || isFree) {
+            result.push({
+              id: m.id,
+              name: m.name || m.id,
+              isFree
+            });
+          }
+        }
+        return { success: true, models: result };
+      }
+      return { success: false, error: `HTTP ${response.status}` };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
   }
 
   // Fetch installed models from Ollama /api/tags
@@ -329,6 +368,23 @@ ${webSnippet ? `\n=== LIVE INTERNET FACTS ===\n${webSnippet}\n==================
           : `${cleanUser}: "${userPrompt}"`
       });
 
+      // Dispatch to NVIDIA NIM or OpenCode Zen if selected
+      const isNvidia = (overrideConfig && overrideConfig.provider === 'nvidia') ||
+                       this.settings.aiProvider === 'nvidia' ||
+                       (this.settings.nvidiaApiKey && this.settings.aiProvider !== 'ollama' && this.settings.aiProvider !== 'opencode_zen');
+
+      if (isNvidia) {
+        return await this.generateNvidia(userPrompt, cleanUser, messages, fullSystemInstruction);
+      }
+
+      const isZen = (overrideConfig && overrideConfig.provider === 'opencode_zen') ||
+                    this.settings.aiProvider === 'opencode_zen' ||
+                    (this.settings.opencodeZenApiKey && this.settings.aiProvider !== 'ollama');
+
+      if (isZen) {
+        return await this.generateOpenCodeZen(userPrompt, cleanUser, messages, fullSystemInstruction);
+      }
+
       let aiText = '';
 
       // 5. Query Ollama /api/chat with strict CPU thread limit and timeout
@@ -439,6 +495,209 @@ ${webSnippet ? `\n=== LIVE INTERNET FACTS ===\n${webSnippet}\n==================
     } finally {
       this.isGenerating = false;
     }
+  }
+
+  // NVIDIA NIM Generation
+  async generateNvidia(userPrompt, cleanUser, messages, fullSystemInstruction) {
+    const apiKey = (this.settings.nvidiaApiKey || '').trim();
+    if (!apiKey) {
+      websocketServer.logSystem('[NVIDIA AI] API Key is missing. Please enter your NVIDIA key in settings.', 'warning');
+      return { success: false, error: 'NVIDIA API Key not configured' };
+    }
+
+    const currentModel = this.settings.nvidiaModel || 'nvidia/nemotron-3.5-lightning-30b-a3b';
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+    try {
+      const response = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          'Accept': 'application/json',
+          'User-Agent': 'OBS-Chat-Relay/1.0'
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: currentModel,
+          messages: messages,
+          max_tokens: 45,
+          temperature: 0.7,
+          top_p: 1,
+          chat_template_kwargs: { enable_thinking: false }
+        })
+      });
+
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        const json = await response.json();
+        const choice = json.choices?.[0]?.message;
+        let aiText = (choice?.content || choice?.reasoning_content || '').trim();
+        if (aiText) {
+          aiText = aiText.replace(/[\r\n]+/g, ' ').replace(/^["']|["']$/g, '').trim();
+          const cleanPrefixRegex = new RegExp(`^@?(${cleanUser}|${this.settings.botName || 'bot'}|cutiebot)[:\\s,]+`, 'i');
+          while (cleanPrefixRegex.test(aiText)) {
+            aiText = aiText.replace(cleanPrefixRegex, '').trim();
+          }
+          aiText = aiText.replace(/^@+/, '').trim();
+          if (aiText.length > 140) {
+            aiText = aiText.substring(0, 137) + '...';
+          }
+
+          this.conversationHistory.push({ role: 'user', content: `${cleanUser}: "${userPrompt}"` });
+          this.conversationHistory.push({ role: 'assistant', content: aiText });
+          if (this.conversationHistory.length > 10) {
+            this.conversationHistory = this.conversationHistory.slice(-10);
+          }
+          return { success: true, text: aiText };
+        }
+      } else {
+        const status = response.status;
+        let errorMsg = `HTTP ${status}`;
+        try {
+          const errJson = await response.json();
+          errorMsg = errJson.error?.message || errorMsg;
+        } catch (e) {}
+        websocketServer.logSystem(`[NVIDIA AI] Model ${currentModel} returned ${status}: ${errorMsg}`, 'warning');
+        return { success: false, error: errorMsg };
+      }
+    } catch (err) {
+      clearTimeout(timeoutId);
+      websocketServer.logSystem(`[NVIDIA AI] Connection error: ${err.message}`, 'error');
+      return { success: false, error: err.message };
+    }
+  }
+
+  // OpenCode Zen generation with free model filtering and auto-switching
+  async generateOpenCodeZen(userPrompt, cleanUser, messages, fullSystemInstruction) {
+    const apiKey = (this.settings.opencodeZenApiKey || '').trim();
+    if (!apiKey) {
+      websocketServer.logSystem('[OpenCode Zen] API Key is missing. Please enter your OpenCode Zen key in settings.', 'warning');
+      return { success: false, error: 'OpenCode Zen API Key not configured' };
+    }
+
+    const defaultFreeModels = [
+      'big-pickle',
+      'deepseek-v4.1-flash-free',
+      'glm-5.3-flash-free',
+      'mimo-v2.6-flash-free',
+      'beam-free',
+      'flint-40b-free',
+      'nemotron-3.5-super-vl-free',
+      'nemotron-3.5-lightning-free',
+      'crouton-alpha-free',
+      'iceman-free',
+      'inkling-2-small-free'
+    ];
+
+    let availableModels = defaultFreeModels;
+    try {
+      const fetched = await this.fetchOpenCodeModels(this.settings.opencodeZenFreeOnly);
+      if (fetched && fetched.success && fetched.models && fetched.models.length > 0) {
+        availableModels = fetched.models.map(m => m.id);
+      }
+    } catch (e) {}
+
+    let currentModel = this.settings.opencodeZenModel || 'big-pickle';
+    if (this.settings.opencodeZenFreeOnly && !availableModels.includes(currentModel)) {
+      currentModel = availableModels[0] || 'big-pickle';
+      this.settings.opencodeZenModel = currentModel;
+    }
+
+    const triedModels = new Set();
+    const maxAttempts = this.settings.opencodeZenAutoSwitch ? Math.min(4, availableModels.length) : 1;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      triedModels.add(currentModel);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+      try {
+        const response = await fetch('https://opencode.ai/zen/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+            'User-Agent': 'OBS-Chat-Relay/1.0'
+          },
+          signal: controller.signal,
+          body: JSON.stringify({
+            model: currentModel,
+            messages: messages,
+            max_tokens: 80,
+            temperature: 0.7
+          })
+        });
+
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+          const json = await response.json();
+          let aiText = (json.choices?.[0]?.message?.content || '').trim();
+          if (aiText) {
+            aiText = aiText.replace(/[\r\n]+/g, ' ').replace(/^["']|["']$/g, '').trim();
+            const cleanPrefixRegex = new RegExp(`^@?(${cleanUser}|${this.settings.botName || 'bot'}|cutiebot)[:\\s,]+`, 'i');
+            while (cleanPrefixRegex.test(aiText)) {
+              aiText = aiText.replace(cleanPrefixRegex, '').trim();
+            }
+            aiText = aiText.replace(/^@+/, '').trim();
+            if (aiText.length > 220) {
+              aiText = aiText.substring(0, 217) + '...';
+            }
+
+            this.conversationHistory.push({ role: 'user', content: `${cleanUser}: "${userPrompt}"` });
+            this.conversationHistory.push({ role: 'assistant', content: aiText });
+            if (this.conversationHistory.length > 10) {
+              this.conversationHistory = this.conversationHistory.slice(-10);
+            }
+            return { success: true, text: aiText };
+          }
+        } else {
+          const status = response.status;
+          let errorMsg = `HTTP ${status}`;
+          try {
+            const errJson = await response.json();
+            errorMsg = errJson.error?.message || errorMsg;
+          } catch (e) {}
+
+          websocketServer.logSystem(`[OpenCode Zen] Model ${currentModel} returned ${status}: ${errorMsg}`, 'warning');
+
+          const isQuota = status === 402 || status === 429 || status === 400 || status === 503 ||
+            errorMsg.toLowerCase().includes('credit') ||
+            errorMsg.toLowerCase().includes('quota') ||
+            errorMsg.toLowerCase().includes('rate') ||
+            errorMsg.toLowerCase().includes('limit');
+
+          if (isQuota && this.settings.opencodeZenAutoSwitch) {
+            const nextModel = availableModels.find(m => !triedModels.has(m));
+            if (nextModel) {
+              websocketServer.logSystem(`[OpenCode Zen] Quota/credits ran out on ${currentModel}. Auto-switching to next free model: ${nextModel}...`, 'info');
+              currentModel = nextModel;
+              this.settings.opencodeZenModel = nextModel;
+              this.saveSettings({ opencodeZenModel: nextModel });
+              continue;
+            }
+          }
+          throw new Error(`OpenCode Zen error: ${errorMsg}`);
+        }
+      } catch (err) {
+        clearTimeout(timeoutId);
+        if (this.settings.opencodeZenAutoSwitch) {
+          const nextModel = availableModels.find(m => !triedModels.has(m));
+          if (nextModel) {
+            websocketServer.logSystem(`[OpenCode Zen] Auto-switching from ${currentModel} to: ${nextModel}`, 'info');
+            currentModel = nextModel;
+            this.settings.opencodeZenModel = nextModel;
+            this.saveSettings({ opencodeZenModel: nextModel });
+            continue;
+          }
+        }
+        return { success: false, error: err.message };
+      }
+    }
+    return { success: false, error: 'All attempted OpenCode Zen models failed' };
   }
 
   // Handle incoming live chat message from YouTube or Kick

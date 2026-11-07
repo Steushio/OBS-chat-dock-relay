@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const http = require('http');
 
 class OverlayServer {
@@ -34,6 +35,14 @@ class OverlayServer {
 
     this.app.get('/eventdock', (req, res) => {
       res.sendFile(path.join(overlaysDir, 'eventdock.html'));
+    });
+
+    this.app.get('/tunnel-dock', (req, res) => {
+      res.sendFile(path.join(overlaysDir, 'tunnel-dock.html'));
+    });
+
+    this.app.get('/tunnel-dock.html', (req, res) => {
+      res.sendFile(path.join(overlaysDir, 'tunnel-dock.html'));
     });
 
     // Endpoint to stream local audio files for OBS docks
@@ -131,6 +140,135 @@ class OverlayServer {
       }
     });
 
+    // Account & Session sync endpoint for mobile companion app
+    this.app.get('/api/sync-accounts', (req, res) => {
+      try {
+        const configStore = require('./configStore');
+        const streamManager = require('./streamManager');
+        const activeStream = streamManager.getActiveStream();
+
+        res.json({
+          success: true,
+          kickUsername: configStore.get('kickUsername') || 'steushio',
+          kickBroadcasterEmail: configStore.get('kickBroadcasterEmail') || '',
+          kickBotUsername: configStore.get('kickBotUsername') || configStore.get('kickUsername') || 'steushio',
+          kickBotEmail: configStore.get('kickBotEmail') || '',
+          kickChatroomId: configStore.get('kickChatroomId') || '33438685',
+          youtubeChannel: (activeStream && activeStream.channelTitle) || configStore.get('lastStreamer') || 'YouTube Streamer',
+          youtubeBroadcasterEmail: configStore.get('ytBroadcasterEmail') || '',
+          youtubeBotChannel: configStore.get('youtubeBotChannel') || '',
+          youtubeBotEmail: configStore.get('ytBotEmail') || '',
+          youtubeVideoId: (activeStream && activeStream.videoId) || configStore.get('lastVideoId') || '',
+          ollamaBotSettings: configStore.get('ollamaBotSettings') || {}
+        });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+
+    // Endpoint for mobile data relay to push events over HTTP
+    this.app.post('/api/relay-event', express.json(), (req, res) => {
+      try {
+        const { event, data } = req.body;
+        if (event && data) {
+          const websocketServer = require('./websocketServer');
+          websocketServer.broadcast(event, data);
+          if (event === 'remote_transmitter_connected') {
+            try {
+              const tunnelManager = require('./tunnelManager');
+              tunnelManager.registerDevice({
+                deviceId: (data && data.device) || 'Android Mobile (HTTP)',
+                device: (data && data.device) || 'Android Mobile (HTTP)',
+                ip: req.ip || 'unknown',
+                cloudRoom: data && data.cloudRoom,
+                connectedAt: Date.now()
+              });
+            } catch (e) {}
+          } else if (event === 'chat') {
+            try {
+              const ollamaBot = require('./ollamaBot');
+              if (ollamaBot && typeof ollamaBot.handleChatMessage === 'function') {
+                ollamaBot.handleChatMessage(data);
+              }
+            } catch (e) {}
+          }
+          return res.json({ success: true });
+        }
+        res.status(400).json({ error: 'Missing event or data' });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // Direct APK download route for mobile installation without USB cable
+    this.app.get(['/app-debug.apk', '/download', '/apk'], (req, res) => {
+      const apkPath = path.join(__dirname, '..', '..', 'app-debug.apk');
+      if (fs.existsSync(apkPath)) {
+        res.download(apkPath, 'OBS-Chat-Relay.apk');
+      } else {
+        res.status(404).send('APK not found. Please compile first.');
+      }
+    });
+
+    // Tunnel and remote gateway APIs
+    this.app.get('/api/tunnel-status', (req, res) => {
+      try {
+        const tunnelManager = require('./tunnelManager');
+        res.json(tunnelManager.getStatus());
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    this.app.get('/api/tunnel-qr', async (req, res) => {
+      try {
+        const QRCode = require('qrcode');
+        const tunnelManager = require('./tunnelManager');
+        const status = tunnelManager.getStatus();
+        const connectUrl = status.wsUrl || status.tunnelUrl || `ws://${status.localIp}:${status.localPort}`;
+        
+        // Structured QR payload with auto-fallback to raw URL
+        const qrPayload = JSON.stringify({
+          type: 'obs_chat_relay',
+          version: 1,
+          wsUrl: connectUrl,
+          httpUrl: status.tunnelUrl || `http://${status.localIp}:${status.localPort}`,
+          host: status.host,
+          port: status.port,
+          mode: status.mode
+        });
+
+        const qrDataUrl = await QRCode.toDataURL(qrPayload, {
+          margin: 1,
+          color: { dark: '#000000', light: '#ffffff' },
+          width: 280
+        });
+        res.json({ qr: qrDataUrl, payload: qrPayload, url: connectUrl });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    this.app.post('/api/tunnel-start', express.json(), async (req, res) => {
+      try {
+        const tunnelManager = require('./tunnelManager');
+        const status = await tunnelManager.startTunnel(req.body || {});
+        res.json(status);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    this.app.post('/api/tunnel-stop', (req, res) => {
+      try {
+        const tunnelManager = require('./tunnelManager');
+        const status = tunnelManager.stopTunnel();
+        res.json(status);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
     // Root status API
     this.app.get('/status', (req, res) => {
       const configStore = require('./configStore');
@@ -155,8 +293,25 @@ class OverlayServer {
       this.port = port || 3000;
       this.server = http.createServer(this.app);
 
-      this.server.listen(this.port, '127.0.0.1', () => {
-        console.log(`[OverlayServer] HTTP Server listening on http://127.0.0.1:${this.port}`);
+      this.server.listen(this.port, '0.0.0.0', () => {
+        console.log(`[OverlayServer] HTTP Server listening on http://0.0.0.0:${this.port}`);
+        
+        // Attach WebSocket server so port 3000 and tunnels can handle both HTTP and WS
+        try {
+          const websocketServer = require('./websocketServer');
+          websocketServer.attachToHttpServer(this.server);
+        } catch (e) {
+          console.error('[OverlayServer] Failed to attach WebSocket to HTTP server:', e);
+        }
+
+        // Auto-start zero-config cloud tunnel in background with permanent fixed subdomain
+        try {
+          const tunnelManager = require('./tunnelManager');
+          tunnelManager.startTunnel({ localPort: this.port, subdomain: 'steushio-relay' }).catch((err) => {
+            console.warn('[OverlayServer] Cloud tunnel background start warning:', err.message);
+          });
+        } catch (e) {}
+
         resolve();
       });
 
@@ -168,6 +323,11 @@ class OverlayServer {
   }
 
   stop() {
+    try {
+      const tunnelManager = require('./tunnelManager');
+      tunnelManager.stopTunnel();
+    } catch (e) {}
+
     if (this.server) {
       this.server.close(() => {
         console.log('[OverlayServer] HTTP Server stopped');

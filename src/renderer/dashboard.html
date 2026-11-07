@@ -173,29 +173,109 @@
           </label>
         </div>
 
-        <!-- Connection Settings -->
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px;">
-          <div class="form-group" style="grid-column: span 2;">
-            <label for="input-ollama-url">Ollama Server URL</label>
-            <div style="display: flex; gap: 8px;">
-              <input type="text" id="input-ollama-url" value="http://127.0.0.1:11434" placeholder="http://127.0.0.1:11434">
-              <button id="btn-fetch-ollama-models" class="btn-secondary" style="white-space: nowrap; font-size: 12px;">🔄 Fetch Models</button>
+        <!-- AI Engine Provider Selection -->
+        <div style="margin-top: 12px; background: rgba(0, 0, 0, 0.2); padding: 10px 12px; border-radius: 8px;">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+            <div class="form-group" style="margin: 0;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <label for="select-ai-provider" style="font-size: 11px; font-weight: bold; color: #a855f7;">AI Provider</label>
+                <span style="font-size: 9px; color: #c084fc; font-weight: bold;">FREE MODELS</span>
+              </div>
+              <select id="select-ai-provider" class="input-select" style="width: 100%; padding: 6px 10px; border-radius: 6px; background: #18181b; color: #fff; border: 1px solid #3f3f46; font-size: 11px;">
+                <option value="nvidia">🟢 NVIDIA NIM (Free Cloud AI)</option>
+                <option value="opencode_zen">⚡ OpenCode Zen (Free Cloud AI)</option>
+                <option value="ollama">🦙 Local Ollama (On-Device / PC)</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label for="input-ollama-botname" style="font-size: 11px; margin-bottom: 4px; display: block;">Bot Name in Chat</label>
+              <input type="text" id="input-ollama-botname" value="AI Bot" placeholder="e.g. AI Assistant" style="padding: 6px 10px; font-size: 11px;">
             </div>
           </div>
 
-          <div class="form-group">
-            <label for="select-ollama-model">Ollama Model</label>
-            <select id="select-ollama-model" class="input-select" style="width: 100%; padding: 8px; border-radius: 6px; background: #18181b; color: #fff; border: 1px solid #3f3f46;">
-              <option value="llama3">llama3</option>
-              <option value="mistral">mistral</option>
-              <option value="gemma">gemma</option>
-              <option value="qwen2.5">qwen2.5</option>
-            </select>
+          <!-- NVIDIA NIM Settings Block -->
+          <div id="nvidia-settings-group" style="margin-top: 10px;">
+            <div class="form-group" style="margin-bottom: 8px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <label for="input-nvidia-key" style="margin: 0; font-size: 11px; color: #4ade80; font-weight: bold;">NVIDIA API Key</label>
+                <small style="color: #4ade80;">Get free key at <a href="https://build.nvidia.com" target="_blank" style="color: #38bdf8; text-decoration: underline;">build.nvidia.com</a></small>
+              </div>
+              <input type="password" id="input-nvidia-key" placeholder="Paste NVIDIA API key (nvapi-...)">
+            </div>
+
+            <div class="form-group" style="margin-bottom: 8px;">
+              <label for="select-nvidia-model" style="margin: 0 0 4px 0; font-size: 11px;">NVIDIA Model</label>
+              <select id="select-nvidia-model" class="input-select" style="width: 100%; padding: 6px; border-radius: 4px; background: #18181b; color: #fff; border: 1px solid #3f3f46; font-size: 11px;">
+                <option value="meta/llama-3.3-70b-instruct">meta/llama-3.3-70b-instruct (Recommended)</option>
+                <option value="meta/llama-3.1-8b-instruct">meta/llama-3.1-8b-instruct (Ultra Fast)</option>
+                <option value="nvidia/llama-3.1-nemotron-70b-instruct">nvidia/llama-3.1-nemotron-70b-instruct</option>
+                <option value="deepseek-ai/deepseek-r1">deepseek-ai/deepseek-r1</option>
+                <option value="mistralai/mistral-large-2-instruct">mistralai/mistral-large-2-instruct</option>
+              </select>
+            </div>
           </div>
 
-          <div class="form-group">
-            <label for="input-ollama-botname">Bot Name in Chat</label>
-            <input type="text" id="input-ollama-botname" value="AI Bot" placeholder="e.g. AI Assistant">
+          <!-- OpenCode Zen Settings Block -->
+          <div id="opencode-zen-settings-group" style="margin-top: 10px;">
+            <div class="form-group" style="margin-bottom: 8px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <label for="input-opencode-key" style="margin: 0; font-size: 11px;">OpenCode Zen API Key</label>
+                <small style="color: #c084fc;">Get key at <a href="#" id="link-opencode-auth" style="color: #38bdf8; text-decoration: underline;">opencode.ai/auth</a></small>
+              </div>
+              <input type="password" id="input-opencode-key" placeholder="Paste OpenCode Zen API key">
+            </div>
+
+            <div class="form-group" style="margin-bottom: 8px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <label for="select-opencode-model" style="margin: 0; font-size: 11px;">Model</label>
+                <button id="btn-fetch-opencode-models" class="btn-secondary" style="font-size: 10px; padding: 2px 6px;">🔄 Fetch Models</button>
+              </div>
+              <select id="select-opencode-model" class="input-select" style="width: 100%; padding: 6px; border-radius: 4px; background: #18181b; color: #fff; border: 1px solid #3f3f46; font-size: 11px;">
+                <option value="big-pickle">Big Pickle (Free)</option>
+                <option value="deepseek-v4.1-flash-free">DeepSeek V4.1 Flash Free</option>
+                <option value="glm-5.3-flash-free">GLM-5.3-Flash Free</option>
+                <option value="mimo-v2.6-flash-free">MiMo-V2.6-Flash Free</option>
+                <option value="beam-free">Beam Free</option>
+                <option value="flint-40b-free">Flint 40B Free</option>
+                <option value="nemotron-3.5-super-vl-free">Nemotron 3.5 Super VL Free</option>
+                <option value="nemotron-3.5-lightning-free">Nemotron 3.5 Lightning Free</option>
+                <option value="crouton-alpha-free">Crouton Alpha Free</option>
+                <option value="iceman-free">Iceman Free</option>
+                <option value="inkling-2-small-free">Inkling 2 Small Free</option>
+              </select>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 6px; background: rgba(255, 255, 255, 0.02); padding: 8px 10px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.05);">
+              <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; color: #fff;">
+                <input type="checkbox" id="toggle-opencode-free-only" checked>
+                <span><strong>Only use free models</strong> (Prevents spending credits)</span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; color: #fff;">
+                <input type="checkbox" id="toggle-opencode-auto-switch" checked>
+                <span><strong>Auto-switch models</strong> if credits run out or rate-limited</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Ollama Local Settings Block -->
+          <div id="ollama-local-settings-group" style="display: none; margin-top: 10px;">
+            <div class="form-group" style="margin-bottom: 8px;">
+              <label for="input-ollama-url" style="font-size: 11px;">Ollama Server URL</label>
+              <div style="display: flex; gap: 8px;">
+                <input type="text" id="input-ollama-url" value="http://127.0.0.1:11434" placeholder="http://127.0.0.1:11434">
+                <button id="btn-fetch-ollama-models" class="btn-secondary" style="white-space: nowrap; font-size: 12px;">🔄 Fetch Models</button>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="select-ollama-model" style="font-size: 11px;">Ollama Model</label>
+              <select id="select-ollama-model" class="input-select" style="width: 100%; padding: 6px; border-radius: 6px; background: #18181b; color: #fff; border: 1px solid #3f3f46;">
+                <option value="llama3">llama3</option>
+                <option value="mistral">mistral</option>
+                <option value="gemma">gemma</option>
+                <option value="qwen2.5">qwen2.5</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -425,11 +505,64 @@
             </div>
             <button class="btn-secondary btn-copy" data-target="url-event">📋 Copy</button>
           </div>
+
+          <!-- Mobile Gateway QR Dock URL -->
+          <div class="url-item">
+            <div class="url-details">
+              <span class="url-name">3. Mobile Connect & QR Dock (In OBS)</span>
+              <span id="url-tunnel" class="url-path">http://127.0.0.1:3000/tunnel-dock.html</span>
+            </div>
+            <button class="btn-secondary btn-copy" data-target="url-tunnel">📋 Copy</button>
+          </div>
         </div>
 
         <div style="margin-top: 14px; display: flex; gap: 8px;">
           <button id="btn-clear-dock-chat" class="btn-secondary" style="flex: 1; font-size: 12px; padding: 7px 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;" title="Immediately flush all chat messages from connected OBS docks">
             🧹 Clear OBS Chat Dock
+          </button>
+        </div>
+      </div>
+
+      <!-- Mobile Remote Gateway Card (Zero-Config / No Port Forwarding / No Tailscale) -->
+      <div class="card" style="border: 1px solid rgba(145, 70, 255, 0.4); background: linear-gradient(180deg, rgba(145, 70, 255, 0.05) 0%, rgba(24, 24, 27, 0.8) 100%);">
+        <div class="card-title" style="display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 20px;">📱</span>
+            <h2 class="title-font" style="color: #c084fc;">Mobile Cloud Gateway</h2>
+          </div>
+          <span id="tunnel-status-badge" style="font-size: 11px; font-weight: bold; padding: 3px 8px; border-radius: 9999px; background: rgba(0, 245, 155, 0.15); color: #00f59b; border: 1px solid rgba(0, 245, 155, 0.3);">
+            🟢 Online (4G/5G)
+          </span>
+        </div>
+        <p style="font-size: 12px; color: var(--text-muted); margin-top: -6px; margin-bottom: 12px;">
+          Direct connection for your Android phone over mobile cellular data. <strong>No router port forwarding</strong> or <strong>Tailscale</strong> required!
+        </p>
+
+        <div style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 10px; margin-bottom: 10px;">
+          <div style="background: rgba(0, 0, 0, 0.3); padding: 8px 10px; border-radius: 6px; border: 1px solid #27272a;">
+            <span style="font-size: 10px; text-transform: uppercase; color: var(--text-muted); font-weight: bold;">Cloud Host / IP</span>
+            <div id="dash-tunnel-host" style="font-size: 12px; font-weight: bold; color: #fff; word-break: break-all; margin-top: 2px;">Loading...</div>
+          </div>
+          <div style="background: rgba(0, 0, 0, 0.3); padding: 8px 10px; border-radius: 6px; border: 1px solid #27272a;">
+            <span style="font-size: 10px; text-transform: uppercase; color: var(--text-muted); font-weight: bold;">Port</span>
+            <div id="dash-tunnel-port" style="font-size: 12px; font-weight: bold; color: #fff; margin-top: 2px;">443</div>
+          </div>
+        </div>
+
+        <div style="background: rgba(0, 0, 0, 0.3); padding: 8px 10px; border-radius: 6px; border: 1px solid #27272a; margin-bottom: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 10px; text-transform: uppercase; color: var(--text-muted); font-weight: bold;">Mobile WebSocket Target URL</span>
+            <button id="btn-copy-tunnel-url" class="btn-secondary" style="font-size: 10px; padding: 2px 6px;">📋 Copy</button>
+          </div>
+          <div id="dash-tunnel-ws" style="font-size: 11px; font-weight: bold; color: #38bdf8; word-break: break-all; margin-top: 3px;">Loading...</div>
+        </div>
+
+        <div style="display: flex; gap: 8px;">
+          <button id="btn-open-qr-dock" class="btn-primary" style="flex: 1; font-size: 12px; padding: 7px 10px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            📷 Open QR Code Dock
+          </button>
+          <button id="btn-restart-tunnel" class="btn-secondary" style="font-size: 12px; padding: 7px 10px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            🔄 Refresh
           </button>
         </div>
       </div>

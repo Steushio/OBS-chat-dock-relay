@@ -33,7 +33,8 @@ class ConfigStore {
   load() {
     try {
       if (fs.existsSync(this.configPath)) {
-        const data = fs.readFileSync(this.configPath, 'utf-8');
+        let data = fs.readFileSync(this.configPath, 'utf-8');
+        data = data.replace(/^\uFEFF/, '').trim();
         return { ...this.defaults, ...JSON.parse(data) };
       }
     } catch (err) {

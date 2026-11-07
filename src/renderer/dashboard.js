@@ -103,6 +103,20 @@ const selectAutoRespond = document.getElementById('select-auto-respond');
 const inputOllamaCooldown = document.getElementById('input-ollama-cooldown');
 const selectOllamaThreads = document.getElementById('select-ollama-threads');
 
+// AI Providers UI Elements
+const selectAiProvider = document.getElementById('select-ai-provider');
+const nvidiaSettingsGroup = document.getElementById('nvidia-settings-group');
+const inputNvidiaKey = document.getElementById('input-nvidia-key');
+const selectNvidiaModel = document.getElementById('select-nvidia-model');
+const opencodeZenSettingsGroup = document.getElementById('opencode-zen-settings-group');
+const ollamaLocalSettingsGroup = document.getElementById('ollama-local-settings-group');
+const inputOpencodeKey = document.getElementById('input-opencode-key');
+const linkOpencodeAuth = document.getElementById('link-opencode-auth');
+const selectOpencodeModel = document.getElementById('select-opencode-model');
+const btnFetchOpencodeModels = document.getElementById('btn-fetch-opencode-models');
+const toggleOpencodeFreeOnly = document.getElementById('toggle-opencode-free-only');
+const toggleOpencodeAutoSwitch = document.getElementById('toggle-opencode-auto-switch');
+
 const personaPresets = {
   hype: `You are a hype, energetic, and casual live stream chat bot for a live gaming stream.\nRules:\n- Respond naturally like a streamer or chat moderator using casual stream slang, hype, or emojis.\n- NEVER sound like customer support, an assistant, or say "How can I help you today?".\n- Keep responses short, direct, and under 15 words.`,
   casual: `You are a friendly, relaxed streamer bot chatting with viewers in a live stream.\nRules:\n- Be warm, casual, and conversational like a friend in chat.\n- NEVER sound corporate, formal, or like an assistant.\n- Keep responses short and under 15 words.`,
@@ -582,6 +596,40 @@ function setupEventListeners() {
     });
   }
 
+  if (selectAiProvider) {
+    selectAiProvider.addEventListener('change', () => {
+      const val = selectAiProvider.value;
+      if (nvidiaSettingsGroup) nvidiaSettingsGroup.style.display = val === 'nvidia' ? 'block' : 'none';
+      if (opencodeZenSettingsGroup) opencodeZenSettingsGroup.style.display = val === 'opencode_zen' ? 'block' : 'none';
+      if (ollamaLocalSettingsGroup) ollamaLocalSettingsGroup.style.display = val === 'ollama' ? 'block' : 'none';
+    });
+  }
+
+  if (linkOpencodeAuth) {
+    linkOpencodeAuth.addEventListener('click', (e) => {
+      e.preventDefault();
+      try {
+        const { shell } = require('electron');
+        shell.openExternal('https://opencode.ai/auth');
+      } catch (err) {
+        console.error('Failed to open link:', err);
+      }
+    });
+  }
+
+  if (btnFetchOpencodeModels) {
+    btnFetchOpencodeModels.addEventListener('click', () => {
+      const isFree = toggleOpencodeFreeOnly ? toggleOpencodeFreeOnly.checked : true;
+      fetchOpencodeZenModels(isFree, selectOpencodeModel ? selectOpencodeModel.value : null);
+    });
+  }
+
+  if (toggleOpencodeFreeOnly) {
+    toggleOpencodeFreeOnly.addEventListener('change', () => {
+      fetchOpencodeZenModels(toggleOpencodeFreeOnly.checked, selectOpencodeModel ? selectOpencodeModel.value : null);
+    });
+  }
+
   btnSaveOllama.addEventListener('click', () => {
     saveOllamaSettings();
   });
@@ -592,10 +640,21 @@ function setupEventListeners() {
     btnTestPrompt.disabled = true;
 
     try {
+      const provider = selectAiProvider ? selectAiProvider.value : 'nvidia';
+      let activeModel = 'meta/llama-3.3-70b-instruct';
+      if (provider === 'nvidia') {
+        activeModel = selectNvidiaModel ? selectNvidiaModel.value : 'meta/llama-3.3-70b-instruct';
+      } else if (provider === 'opencode_zen') {
+        activeModel = selectOpencodeModel ? selectOpencodeModel.value : 'big-pickle';
+      } else {
+        activeModel = selectOllamaModel ? selectOllamaModel.value : 'llama3';
+      }
+
       const res = await ipcRenderer.invoke('test-ollama-prompt', {
         prompt,
+        provider,
         url: inputOllamaUrl.value.trim(),
-        model: selectOllamaModel.value,
+        model: activeModel,
         systemPrompt: inputOllamaPrompt.value.trim(),
         streamerKnowledge: inputStreamerKnowledge ? inputStreamerKnowledge.value.trim() : '',
         streamDescription: inputStreamDescription ? inputStreamDescription.value.trim() : ''
@@ -603,10 +662,10 @@ function setupEventListeners() {
 
       if (res.success && res.text) {
         showToast(`AI Response: "${res.text}"`);
-        logActivity(`[Ollama Test] Prompt: "${prompt}" -> Response: "${res.text}"`);
+        logActivity(`[AI Test (${provider})] Prompt: "${prompt}" -> Response: "${res.text}"`);
       } else {
         showToast(`AI Error: ${res.error || 'Failed'}`);
-        logActivity(`[Ollama Test Error] ${res.error || 'Failed'}`, 'error');
+        logActivity(`[AI Test Error] ${res.error || 'Failed'}`, 'error');
       }
     } catch (err) {
       showToast(`Error: ${err.message}`);
@@ -634,11 +693,44 @@ async function checkKickBotLoginStatus() {
   kickBotStatus.style.color = loggedIn ? '#22c55e' : '#ef4444';
 }
 
-// Ollama Settings Loader & Renderer
+// Ollama & OpenCode Zen Settings Loader & Renderer
 async function loadOllamaSettings() {
   try {
     const settings = await ipcRenderer.invoke('get-ollama-settings');
     if (!settings) return;
+
+    if (selectAiProvider) {
+      selectAiProvider.value = settings.aiProvider || 'nvidia';
+      const val = selectAiProvider.value;
+      if (nvidiaSettingsGroup) nvidiaSettingsGroup.style.display = val === 'nvidia' ? 'block' : 'none';
+      if (opencodeZenSettingsGroup) opencodeZenSettingsGroup.style.display = val === 'opencode_zen' ? 'block' : 'none';
+      if (ollamaLocalSettingsGroup) ollamaLocalSettingsGroup.style.display = val === 'ollama' ? 'block' : 'none';
+    }
+
+    if (inputNvidiaKey) inputNvidiaKey.value = settings.nvidiaApiKey || '';
+    if (selectNvidiaModel && settings.nvidiaModel) selectNvidiaModel.value = settings.nvidiaModel;
+
+    if (inputOpencodeKey) inputOpencodeKey.value = settings.opencodeZenApiKey || '';
+    if (toggleOpencodeFreeOnly) toggleOpencodeFreeOnly.checked = settings.opencodeZenFreeOnly !== false;
+    if (toggleOpencodeAutoSwitch) toggleOpencodeAutoSwitch.checked = settings.opencodeZenAutoSwitch !== false;
+
+    if (selectOpencodeModel && settings.opencodeZenModel) {
+      let found = false;
+      for (let i = 0; i < selectOpencodeModel.options.length; i++) {
+        if (selectOpencodeModel.options[i].value === settings.opencodeZenModel) {
+          selectOpencodeModel.selectedIndex = i;
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        const opt = document.createElement('option');
+        opt.value = settings.opencodeZenModel;
+        opt.innerText = settings.opencodeZenModel;
+        opt.selected = true;
+        selectOpencodeModel.appendChild(opt);
+      }
+    }
 
     toggleOllamaEnabled.checked = !!settings.enabled;
     inputOllamaUrl.value = settings.ollamaUrl || 'http://localhost:11434';
@@ -681,8 +773,32 @@ async function loadOllamaSettings() {
     renderTimersList();
 
     fetchOllamaModels(inputOllamaUrl.value, settings.model);
+    fetchOpencodeZenModels(settings.opencodeZenFreeOnly !== false, settings.opencodeZenModel || 'big-pickle');
   } catch (err) {
     console.error('Error loading Ollama settings:', err);
+  }
+}
+
+async function fetchOpencodeZenModels(isFreeOnly = true, currentModel = null) {
+  if (btnFetchOpencodeModels) btnFetchOpencodeModels.innerText = '⏳ Fetching...';
+  try {
+    const res = await ipcRenderer.invoke('fetch-opencode-models', isFreeOnly);
+    if (res && res.success && Array.isArray(res.models) && res.models.length > 0) {
+      if (selectOpencodeModel) {
+        selectOpencodeModel.innerHTML = '';
+        res.models.forEach(m => {
+          const opt = document.createElement('option');
+          opt.value = m.id;
+          opt.innerText = `${m.name || m.id}${m.isFree ? ' (Free)' : ''}`;
+          if (m.id === currentModel) opt.selected = true;
+          selectOpencodeModel.appendChild(opt);
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('Could not fetch OpenCode Zen models:', err);
+  } finally {
+    if (btnFetchOpencodeModels) btnFetchOpencodeModels.innerText = '🔄 Fetch Models';
   }
 }
 
@@ -809,6 +925,13 @@ function renderTimersList() {
 async function saveOllamaSettings(silent = false) {
   const newSettings = {
     enabled: toggleOllamaEnabled.checked,
+    aiProvider: selectAiProvider ? selectAiProvider.value : 'nvidia',
+    nvidiaApiKey: inputNvidiaKey ? inputNvidiaKey.value.trim() : '',
+    nvidiaModel: selectNvidiaModel ? selectNvidiaModel.value : 'meta/llama-3.3-70b-instruct',
+    opencodeZenApiKey: inputOpencodeKey ? inputOpencodeKey.value.trim() : '',
+    opencodeZenModel: selectOpencodeModel ? selectOpencodeModel.value : 'big-pickle',
+    opencodeZenFreeOnly: toggleOpencodeFreeOnly ? toggleOpencodeFreeOnly.checked : true,
+    opencodeZenAutoSwitch: toggleOpencodeAutoSwitch ? toggleOpencodeAutoSwitch.checked : true,
     ollamaUrl: inputOllamaUrl.value.trim(),
     model: selectOllamaModel.value,
     botName: inputOllamaBotname.value.trim() || 'AI Bot',
@@ -1070,5 +1193,91 @@ function playSyntheticTone(category, volume) {
   }
 }
 
+// Mobile Cloud Gateway UI Polling & Controls
+async function refreshDashboardTunnelStatus() {
+  try {
+    const res = await fetch('http://127.0.0.1:3000/api/tunnel-status');
+    if (!res.ok) return;
+    const data = await res.json();
+    const badge = document.getElementById('tunnel-status-badge');
+    const hostEl = document.getElementById('dash-tunnel-host');
+    const portEl = document.getElementById('dash-tunnel-port');
+    const wsEl = document.getElementById('dash-tunnel-ws');
+
+    if (badge) {
+      if (data.status === 'online') {
+        badge.style.background = 'rgba(0, 245, 155, 0.15)';
+        badge.style.color = '#00f59b';
+        badge.style.border = '1px solid rgba(0, 245, 155, 0.3)';
+        badge.textContent = data.mode === 'cloud' ? '🟢 Online (4G/5G)' : '📶 Online (Local Wi-Fi)';
+      } else if (data.status === 'starting') {
+        badge.style.background = 'rgba(255, 184, 0, 0.15)';
+        badge.style.color = '#ffb800';
+        badge.style.border = '1px solid rgba(255, 184, 0, 0.3)';
+        badge.textContent = '🟡 Connecting...';
+      } else {
+        badge.style.background = 'rgba(235, 4, 0, 0.15)';
+        badge.style.color = '#eb0400';
+        badge.style.border = '1px solid rgba(235, 4, 0, 0.3)';
+        badge.textContent = '🔴 Offline';
+      }
+    }
+
+    if (hostEl) hostEl.textContent = data.host || data.localIp || 'Connecting...';
+    if (portEl) portEl.textContent = data.port || (data.mode === 'cloud' ? 443 : 3000);
+    if (wsEl) wsEl.textContent = data.wsUrl || `ws://${data.localIp}:3000`;
+  } catch (e) {}
+}
+
+function setupTunnelUI() {
+  const btnCopy = document.getElementById('btn-copy-tunnel-url');
+  const btnRestart = document.getElementById('btn-restart-tunnel');
+  const btnOpenQr = document.getElementById('btn-open-qr-dock');
+
+  if (btnCopy) {
+    btnCopy.addEventListener('click', () => {
+      const wsEl = document.getElementById('dash-tunnel-ws');
+      if (wsEl && wsEl.textContent) {
+        navigator.clipboard.writeText(wsEl.textContent);
+        const oldText = btnCopy.textContent;
+        btnCopy.textContent = '✓ Copied';
+        setTimeout(() => { btnCopy.textContent = oldText; }, 1500);
+      }
+    });
+  }
+
+  if (btnRestart) {
+    btnRestart.addEventListener('click', async () => {
+      btnRestart.textContent = '⏳ Starting...';
+      try {
+        await fetch('http://127.0.0.1:3000/api/tunnel-start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: 'cloud', localPort: 3000 })
+        });
+        await refreshDashboardTunnelStatus();
+      } catch (e) {}
+      finally {
+        btnRestart.textContent = '🔄 Refresh';
+      }
+    });
+  }
+
+  if (btnOpenQr) {
+    btnOpenQr.addEventListener('click', () => {
+      try {
+        const { shell } = require('electron');
+        shell.openExternal('http://127.0.0.1:3000/tunnel-dock.html');
+      } catch (e) {
+        window.open('http://127.0.0.1:3000/tunnel-dock.html', '_blank');
+      }
+    });
+  }
+
+  refreshDashboardTunnelStatus();
+  setInterval(refreshDashboardTunnelStatus, 4000);
+}
+
 // Start
 init();
+setupTunnelUI();

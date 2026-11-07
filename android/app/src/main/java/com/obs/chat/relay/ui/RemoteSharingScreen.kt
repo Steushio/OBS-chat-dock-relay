@@ -42,6 +42,9 @@ fun RemoteSharingScreen() {
     var testResult by remember { mutableStateOf<String?>(null) }
     var testSuccess by remember { mutableStateOf(false) }
 
+    val effectiveRoom = roomCode.ifBlank { "steushio_live" }
+    val obsDockUrl = "https://steushio.github.io/OBS-chat-dock-relay/?room=$effectiveRoom"
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -49,7 +52,7 @@ fun RemoteSharingScreen() {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 1. Header Card
+        // 1. Header
         item {
             Text(
                 "Remote Network Sharing",
@@ -57,74 +60,15 @@ fun RemoteSharingScreen() {
                 fontWeight = FontWeight.Bold,
                 color = TextMain
             )
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
-                "Transfer live stream chat & alerts over Mobile Data / Cellular to your PC OBS overlay online. No need to be on the same Wi-Fi!",
+                "Stream chat & alerts over 5G cellular data to your PC OBS overlay online. No need to be on the same Wi-Fi!",
                 fontSize = 12.sp,
                 color = TextMuted
             )
         }
 
-        // 2. Status Banner Card
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = CardDark),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, BorderDark, RoundedCornerShape(16.dp))
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(12.dp)
-                                    .clip(CircleShape)
-                                    .background(if (isRemoteConnected) KickGreen else if (remoteEnabled) Color.Yellow else AccentRed)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = connectionStatus.uppercase(),
-                                fontWeight = FontWeight.Bold,
-                                color = if (isRemoteConnected) KickGreen else if (remoteEnabled) Color.Yellow else AccentRed,
-                                fontSize = 13.sp
-                            )
-                        }
-
-                        Switch(
-                            checked = remoteEnabled,
-                            onCheckedChange = {
-                                remoteEnabled = it
-                                prefs.remoteForwardingEnabled = it
-                                if (it) {
-                                    transmitter.start()
-                                } else {
-                                    transmitter.stop()
-                                }
-                            }
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = if (isRemoteConnected)
-                            "Active: Mobile chat & alerts are being streamed online directly to your PC overlay."
-                        else if (remoteEnabled)
-                            "Connecting to your PC IP / Host. Check your target host and network."
-                        else
-                            "Remote transmitter is disabled. Enable switch to stream over mobile cellular data.",
-                        fontSize = 11.sp,
-                        color = TextMuted
-                    )
-                }
-            }
-        }
-
-        // 3. Remote PC Target Configuration Card
+        // 2. PRIMARY CARD: Free Cloud Room (Zero PC apps required)
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = CardDark),
@@ -140,153 +84,68 @@ fun RemoteSharingScreen() {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            "Target PC Overlay IP / Host",
+                            "🌐 Streamer Cloud Room",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
-                            color = TextMain
+                            color = KickGreen
                         )
-
-                        // 1-Tap QR Code Scan Button
-                        Button(
-                            onClick = {
-                                com.obs.chat.relay.util.QrCodeScannerHelper.scanQrCode(
-                                    context = context,
-                                    onSuccess = { targetUrl, raw ->
-                                        targetHost = targetUrl
-                                        prefs.remoteTargetHost = targetUrl
-                                        prefs.remoteForwardingEnabled = true
-                                        remoteEnabled = true
-                                        transmitter.start()
-                                        Toast.makeText(context, "🎉 Scanned QR! Connected to: $targetUrl", Toast.LENGTH_LONG).show()
-                                    },
-                                    onError = { err ->
-                                        Toast.makeText(context, "Scan error: $err", Toast.LENGTH_SHORT).show()
-                                    }
-                                )
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = AccentPurple),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                        Surface(
+                            color = Color(0x2253FC18),
+                            shape = RoundedCornerShape(6.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, KickGreen)
                         ) {
-                            Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Scan QR", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                "5G / Internet",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = KickGreen,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
                         }
                     }
 
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        "Scan the QR code displayed in your OBS Custom Dock or paste the Cloud Tunnel URL (e.g. *.loca.lt). No router setup or Tailscale needed!",
+                        "Zero PC apps needed. OBS receives chat directly via the internet from your phone.",
                         fontSize = 11.sp,
                         color = TextMuted
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
-                    Row(
+                    // Room Code with integrated trailing Randomize button
+                    OutlinedTextField(
+                        value = roomCode,
+                        onValueChange = {
+                            roomCode = it
+                            prefs.cloudRoomCode = it
+                        },
+                        label = { Text("Streamer Cloud Room Code") },
+                        placeholder = { Text("e.g. live_892104 or my_channel", fontSize = 12.sp) },
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = targetHost,
-                            onValueChange = {
-                                targetHost = it
-                                prefs.remoteTargetHost = it
-                            },
-                            placeholder = { Text("e.g. *.loca.lt or 192.168.1.10:3000", fontSize = 12.sp) },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = AccentBlue,
-                                unfocusedBorderColor = BorderDark
-                            )
-                        )
-
-                        Button(
-                            onClick = {
-                                try {
-                                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
-                                    val clip = clipboard?.primaryClip?.getItemAt(0)?.text?.toString()?.trim()
-                                    if (!clip.isNullOrBlank()) {
-                                        targetHost = clip
-                                        prefs.remoteTargetHost = clip
-                                        prefs.remoteForwardingEnabled = true
-                                        remoteEnabled = true
-                                        transmitter.start()
-                                        Toast.makeText(context, "Pasted & Connecting: $clip", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        Toast.makeText(context, "Clipboard is empty", Toast.LENGTH_SHORT).show()
-                                    }
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "Clipboard error: ${e.message}", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = AccentPurple),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 14.dp)
-                        ) {
-                            Text("📋 Paste", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = KickGreen,
+                            unfocusedBorderColor = BorderDark
+                        ),
+                        trailingIcon = {
+                            TextButton(
+                                onClick = {
+                                    val newCode = "live_" + (100000..999999).random()
+                                    roomCode = newCode
+                                    prefs.cloudRoomCode = newCode
+                                    Toast.makeText(context, "Generated new Room: $newCode", Toast.LENGTH_SHORT).show()
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp)
+                            ) {
+                                Text("🎲 New", color = KickGreen, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
                         }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Text(
-                        "Cloud Room (No PC relay app needed)",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = KickGreen
                     )
-                    Text(
-                        "OBS connects directly to your cloud room over the internet. Any streamer can use their own room.",
-                        fontSize = 11.sp,
-                        color = TextMuted
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = roomCode,
-                            onValueChange = {
-                                roomCode = it
-                                prefs.cloudRoomCode = it
-                            },
-                            label = { Text("Streamer Cloud Room Code") },
-                            placeholder = { Text("e.g. live_892104 or my_channel", fontSize = 12.sp) },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = KickGreen,
-                                unfocusedBorderColor = BorderDark
-                            )
-                        )
-
-                        Button(
-                            onClick = {
-                                val newCode = "live_" + (100000..999999).random()
-                                roomCode = newCode
-                                prefs.cloudRoomCode = newCode
-                                Toast.makeText(context, "Generated new Room: $newCode", Toast.LENGTH_SHORT).show()
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = BgDark),
-                            shape = RoundedCornerShape(8.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, BorderDark),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 14.dp)
-                        ) {
-                            Text("🎲 New", fontSize = 12.sp, color = TextMain, fontWeight = FontWeight.Bold)
-                        }
-                    }
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    val effectiveRoom = roomCode.ifBlank { "steushio_live" }
-                    val obsDockUrl = "https://steushio.github.io/OBS-chat-dock-relay/?room=$effectiveRoom"
-
+                    // OBS Dock URL Surface
                     Surface(
                         color = BgDark,
                         shape = RoundedCornerShape(8.dp),
@@ -296,7 +155,7 @@ fun RemoteSharingScreen() {
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
                             Text(
-                                "Your OBS Browser Dock URL:",
+                                "Your OBS Custom Browser Dock URL:",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = TextMuted
@@ -311,8 +170,9 @@ fun RemoteSharingScreen() {
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
+                    // Perfectly aligned action buttons row
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -329,12 +189,15 @@ fun RemoteSharingScreen() {
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = AccentPurple),
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp)
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
                         ) {
                             Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("📋 Copy OBS Dock Link", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("Copy OBS Link", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
                         }
 
                         Button(
@@ -349,67 +212,22 @@ fun RemoteSharingScreen() {
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = KickGreen, contentColor = Color.Black),
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp)
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
                         ) {
-                            Text("🚀 Send Test Chat", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Test Connection Button
-                    Button(
-                        onClick = {
-                            testTesting = true
-                            testResult = null
-                            scope.launch {
-                                val (success, msg) = transmitter.testConnection(targetHost)
-                                testTesting = false
-                                testSuccess = success
-                                testResult = msg
-                                if (success) {
-                                    transmitter.start()
-                                }
-                            }
-                        },
-                        enabled = !testTesting && targetHost.isNotBlank(),
-                        colors = ButtonDefaults.buttonColors(containerColor = AccentBlue, contentColor = Color.Black),
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        if (testTesting) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.Black, strokeWidth = 2.dp)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Testing Connection...")
-                        } else {
-                            Icon(Icons.Default.NetworkCheck, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Test PC Overlay Connection", fontWeight = FontWeight.Bold)
-                        }
-                    }
-
-                    if (testResult != null) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Surface(
-                            color = if (testSuccess) Color(0x2253FC18) else Color(0x22EF4444),
-                            shape = RoundedCornerShape(8.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, if (testSuccess) KickGreen else AccentRed),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = testResult ?: "",
-                                color = if (testSuccess) KickGreen else AccentRed,
-                                fontSize = 12.sp,
-                                modifier = Modifier.padding(10.dp)
-                            )
+                            Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Send Test Chat", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
                         }
                     }
                 }
             }
         }
 
-        // 4. Quick Setup Guide Card
+        // 3. SECONDARY CARD: Direct PC WebSocket / Local Tunnel (Optional)
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = CardDark),
@@ -419,17 +237,188 @@ fun RemoteSharingScreen() {
                     .border(1.dp, BorderDark, RoundedCornerShape(16.dp))
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("💡 How Remote Sharing Works", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextMain)
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "⚙️ Direct PC WebSocket (Optional)",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextMain
+                        )
+
+                        Switch(
+                            checked = remoteEnabled,
+                            onCheckedChange = {
+                                remoteEnabled = it
+                                prefs.remoteForwardingEnabled = it
+                                if (it) {
+                                    transmitter.start()
+                                } else {
+                                    transmitter.stop()
+                                }
+                            }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        "1. ZERO CONFIGURATION: Open OBS Studio and check the OBS Mobile Relay Plugin or open Custom Browser Dock 'http://127.0.0.1:3000/tunnel-dock.html'.\n\n" +
-                                "2. NO ROUTER SETUP & NO TAILSCALE: The PC automatically creates a secure cloud tunnel address (e.g. *.loca.lt) with an instant QR code.\n\n" +
-                                "3. Simply click 'Copy' on your PC or paste the address into this screen, and tap 'Test Connection'.\n\n" +
-                                "4. Your OBS docks will instantly receive every chat message and alert in real-time, even while you are streaming outside on 4G/5G mobile cellular data!",
+                        if (remoteEnabled)
+                            "Connecting directly to your PC IP or localtunnel server."
+                        else
+                            "Disabled. (You are using the Free Cloud Room above).",
                         fontSize = 11.sp,
-                        color = TextMuted,
-                        lineHeight = 16.sp
+                        color = TextMuted
                     )
+
+                    if (remoteEnabled) {
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Status Row
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isRemoteConnected) KickGreen else Color.Yellow)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = connectionStatus.uppercase(),
+                                fontWeight = FontWeight.Bold,
+                                color = if (isRemoteConnected) KickGreen else Color.Yellow,
+                                fontSize = 11.sp
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Host Field with Paste Trailing Icon
+                        OutlinedTextField(
+                            value = targetHost,
+                            onValueChange = {
+                                targetHost = it
+                                prefs.remoteTargetHost = it
+                            },
+                            label = { Text("PC Host / Tunnel URL") },
+                            placeholder = { Text("e.g. 192.168.1.10:3000", fontSize = 12.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = AccentBlue,
+                                unfocusedBorderColor = BorderDark
+                            ),
+                            trailingIcon = {
+                                TextButton(
+                                    onClick = {
+                                        try {
+                                            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                                            val clip = clipboard?.primaryClip?.getItemAt(0)?.text?.toString()?.trim()
+                                            if (!clip.isNullOrBlank()) {
+                                                targetHost = clip
+                                                prefs.remoteTargetHost = clip
+                                                prefs.remoteForwardingEnabled = true
+                                                remoteEnabled = true
+                                                transmitter.start()
+                                                Toast.makeText(context, "Pasted: $clip", Toast.LENGTH_SHORT).show()
+                                            }
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Clipboard error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 8.dp)
+                                ) {
+                                    Text("📋 Paste", fontSize = 11.sp, color = AccentBlue)
+                                }
+                            }
+                        )
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    com.obs.chat.relay.util.QrCodeScannerHelper.scanQrCode(
+                                        context = context,
+                                        onSuccess = { targetUrl, _ ->
+                                            targetHost = targetUrl
+                                            prefs.remoteTargetHost = targetUrl
+                                            prefs.remoteForwardingEnabled = true
+                                            remoteEnabled = true
+                                            transmitter.start()
+                                            Toast.makeText(context, "Connected to: $targetUrl", Toast.LENGTH_SHORT).show()
+                                        },
+                                        onError = { err ->
+                                            Toast.makeText(context, "Scan error: $err", Toast.LENGTH_SHORT).show()
+                                        }
+                                    )
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = AccentPurple),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp)
+                            ) {
+                                Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Scan QR", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            Button(
+                                onClick = {
+                                    testTesting = true
+                                    testResult = null
+                                    scope.launch {
+                                        val (success, msg) = transmitter.testConnection(targetHost)
+                                        testTesting = false
+                                        testSuccess = success
+                                        testResult = msg
+                                        if (success) {
+                                            transmitter.start()
+                                        }
+                                    }
+                                },
+                                enabled = !testTesting && targetHost.isNotBlank(),
+                                colors = ButtonDefaults.buttonColors(containerColor = AccentBlue, contentColor = Color.Black),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp)
+                            ) {
+                                if (testTesting) {
+                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), color = Color.Black, strokeWidth = 2.dp)
+                                } else {
+                                    Icon(Icons.Default.NetworkCheck, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Test Ping", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+
+                        if (testResult != null) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Surface(
+                                color = if (testSuccess) Color(0x2253FC18) else Color(0x22EF4444),
+                                shape = RoundedCornerShape(8.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, if (testSuccess) KickGreen else AccentRed),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = testResult ?: "",
+                                    color = if (testSuccess) KickGreen else AccentRed,
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(8.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

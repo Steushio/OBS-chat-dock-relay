@@ -8,6 +8,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.obs.chat.relay.OBSChatRelayApp
@@ -36,8 +38,7 @@ fun DocksScreen() {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .padding(horizontal = 4.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             TabRow(
@@ -49,29 +50,63 @@ fun DocksScreen() {
                 Tab(
                     selected = selectedSubTab == 0,
                     onClick = { selectedSubTab = 0 },
-                    text = { Text("💬 All-in-One Chat & Alerts", fontSize = 12.sp) }
+                    text = {
+                        Text(
+                            "💬 Chat",
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            fontWeight = if (selectedSubTab == 0) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
                 )
                 Tab(
                     selected = selectedSubTab == 1,
                     onClick = { selectedSubTab = 1 },
-                    text = { Text("🔔 Alert Dock", fontSize = 12.sp) }
+                    text = {
+                        Text(
+                            "🔔 Alerts",
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            fontWeight = if (selectedSubTab == 1) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
                 )
                 Tab(
                     selected = selectedSubTab == 2,
                     onClick = { selectedSubTab = 2 },
-                    text = { Text("📋 Event Log", fontSize = 12.sp) }
+                    text = {
+                        Text(
+                            "📋 Events",
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            fontWeight = if (selectedSubTab == 2) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
                 )
             }
 
-            IconButton(onClick = { refreshKey++ }) {
-                Icon(Icons.Default.Refresh, contentDescription = "Refresh Dock", tint = AccentBlue)
+            IconButton(
+                onClick = { refreshKey++ },
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    Icons.Default.Refresh,
+                    contentDescription = "Refresh Dock",
+                    tint = AccentBlue,
+                    modifier = Modifier.size(18.dp)
+                )
             }
         }
 
         key(refreshKey, selectedSubTab) {
             DockWebView(
                 url = urls[selectedSubTab],
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
             )
         }
     }

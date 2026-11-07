@@ -247,7 +247,12 @@
         const response = await fetch('/status');
         const config = await response.json();
         
-        ws = new WebSocket(`ws://127.0.0.1:${config.wsPort || 3001}`);
+        const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsHost = window.location.hostname || '127.0.0.1';
+        const wsUrl = (window.location.protocol === 'https:' || window.location.port === '' || window.location.port === '80' || window.location.port === '443')
+          ? `${wsProto}//${window.location.host}`
+          : `${wsProto}//${wsHost}:${config.wsPort || 3001}`;
+        ws = new WebSocket(wsUrl);
 
         ws.onopen = () => {
           statusDot.className = 'badge-indicator connected';

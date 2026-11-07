@@ -39,21 +39,25 @@
     /* Connection status bar */
     #status-bar {
       background-color: #0f0f11;
-      padding: 4px 8px;
+      padding: 6px 10px;
       font-size: 11px;
       border-bottom: 1px solid var(--border);
       display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
       justify-content: space-between;
       align-items: center;
       color: var(--text-muted);
+      box-sizing: border-box;
     }
 
     .badge-indicator {
-      width: 6px;
-      height: 6px;
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
       display: inline-block;
       margin-right: 4px;
+      flex-shrink: 0;
     }
     .badge-indicator.connected { background-color: var(--color-mod); }
     .badge-indicator.disconnected { background-color: var(--color-owner); }
@@ -61,13 +65,18 @@
     /* Stream Info Header */
     #stream-header {
       background-color: var(--bg-card);
-      padding: 6px 10px;
+      padding: 7px 10px;
       font-size: 12px;
+      line-height: 1.4;
+      min-height: 32px;
+      box-sizing: border-box;
       border-bottom: 1px solid var(--border);
       font-weight: 500;
       white-space: nowrap;
       text-overflow: ellipsis;
       overflow: hidden;
+      display: flex;
+      align-items: center;
     }
 
     /* Messages container */
@@ -676,8 +685,56 @@
       }
     }
 
-    // Connect to WebSocket using dynmically fetched configuration
+    function connectCloudRoom(room) {
+      statusText.innerText = 'Connecting Cloud...';
+      const connInfo = document.getElementById('connection-info');
+      if (connInfo) connInfo.innerText = `Cloud Room: ${room}`;
+
+      const cloudWsUrl = `wss://ntfy.sh/${encodeURIComponent(room)}/ws`;
+      ws = new WebSocket(cloudWsUrl);
+
+      ws.onopen = () => {
+        statusDot.className = 'badge-indicator connected';
+        statusText.innerText = 'Cloud: ' + room;
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const raw = JSON.parse(event.data);
+          if (raw.event === 'message' && raw.message) {
+            const payload = JSON.parse(raw.message);
+            handleWebSocketMessage(payload);
+          } else if (raw.event && raw.data) {
+            handleWebSocketMessage(raw);
+          }
+        } catch (e) {
+          console.warn('[CloudDock] Message parse error:', e);
+        }
+      };
+
+      ws.onclose = () => {
+        statusDot.className = 'badge-indicator disconnected';
+        statusText.innerText = 'Reconnecting Cloud...';
+        setTimeout(() => connectCloudRoom(room), 3000);
+      };
+
+      ws.onerror = (err) => {
+        console.error('[CloudDock] Error:', err);
+        ws.close();
+      };
+    }
+
+    // Connect to WebSocket using dynmically fetched configuration or Cloud Room
     async function connect() {
+      // 1. Check if Cloud Room mode is active via URL query param (?room=...) or hash (#...)
+      const urlParams = new URLSearchParams(window.location.search);
+      const cloudRoom = urlParams.get('room') || (window.location.hash ? window.location.hash.replace('#', '') : null);
+
+      if (cloudRoom) {
+        connectCloudRoom(cloudRoom);
+        return;
+      }
+
       try {
         statusText.innerText = 'Connecting...';
         // Get dynamic port from current origin Express status
@@ -693,7 +750,12 @@
         updateAutoClearUI();
         updateEcoUI();
 
-        ws = new WebSocket(`ws://127.0.0.1:${wsPort}`);
+        const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsHost = window.location.hostname || '127.0.0.1';
+        const wsUrl = (window.location.protocol === 'https:' || window.location.port === '' || window.location.port === '80' || window.location.port === '443')
+          ? `${wsProto}//${window.location.host}`
+          : `${wsProto}//${wsHost}:${wsPort}`;
+        ws = new WebSocket(wsUrl);
 
         ws.onopen = () => {
           statusDot.className = 'badge-indicator connected';
