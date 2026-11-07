@@ -209,7 +209,11 @@
 
     let ws = null;
     let maxAlerts = 50;
-    let audioSettings = {};
+    let audioSettings = {
+      alertSoundEnabled: true,
+      alertSoundType: 'default',
+      alertSoundVolume: 100
+    };
 
     function playAlertSound() {
       if (!audioSettings.alertSoundEnabled) return;

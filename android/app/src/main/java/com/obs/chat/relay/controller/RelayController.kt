@@ -138,6 +138,13 @@ class RelayController(private val context: Context) {
                 delay(300)
                 remoteTransmitter.forwardEvent("stream_update", _streamState.value)
                 remoteTransmitter.forwardEvent("kick_stream_update", _kickState.value)
+                val audioPayload = mapOf(
+                    "chatSoundEnabled" to prefs.chatSoundEnabled,
+                    "alertSoundEnabled" to prefs.alertSoundEnabled,
+                    "chatSoundVolume" to 100,
+                    "alertSoundVolume" to 100
+                )
+                remoteTransmitter.forwardEvent("settings_update", mapOf("audioSettings" to audioPayload))
             }
         }
         if (prefs.remoteForwardingEnabled && prefs.remoteTargetHost.isNotBlank()) {
