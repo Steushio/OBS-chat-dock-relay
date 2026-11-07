@@ -140,7 +140,7 @@ fun SettingsScreen() {
                         }
 
                         Button(
-                            onClick = { importFileLauncher.launch("application/json") },
+                            onClick = { importFileLauncher.launch("*/*") },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(10.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = KickGreen, contentColor = Color.Black)
@@ -153,18 +153,40 @@ fun SettingsScreen() {
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    TextButton(
-                        onClick = {
-                            val json = backupManager.exportToJsonString()
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("OBS Settings JSON", json))
-                            Toast.makeText(context, "Full Settings JSON copied to clipboard!", Toast.LENGTH_SHORT).show()
-                        },
-                        modifier = Modifier.fillMaxWidth()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp), tint = TextMuted)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Copy Raw Settings JSON to Clipboard", fontSize = 11.sp, color = TextMuted)
+                        TextButton(
+                            onClick = {
+                                val json = backupManager.exportToJsonString()
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("OBS Settings JSON", json))
+                                Toast.makeText(context, "Full Settings JSON copied to clipboard!", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp), tint = TextMuted)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Copy JSON", fontSize = 11.sp, color = TextMuted)
+                        }
+
+                        TextButton(
+                            onClick = {
+                                try {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val clip = clipboard.primaryClip
+                                    val text = if (clip != null && clip.itemCount > 0) clip.getItemAt(0).text?.toString() ?: "" else ""
+                                    if (text.isNotBlank()) quickJsonText = text
+                                } catch (e: Exception) {}
+                                showQuickJsonDialog = true
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(14.dp), tint = KickGreen)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Paste JSON", fontSize = 11.sp, color = KickGreen)
+                        }
                     }
                 }
             }
@@ -702,6 +724,59 @@ fun SettingsScreen() {
                     Toast.makeText(context, "🎉 Kick broadcaster: $username", Toast.LENGTH_SHORT).show()
                 } else {
                     Toast.makeText(context, "🎉 Bot account connected: $username", Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
+    }
+
+    if (showQuickJsonDialog) {
+        AlertDialog(
+            onDismissRequest = { showQuickJsonDialog = false },
+            containerColor = CardDark,
+            title = { Text("Paste Settings JSON", color = TextMain, fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+            text = {
+                Column {
+                    Text("Paste your exported PC or Mobile JSON settings below to import:", color = TextMuted, fontSize = 12.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = quickJsonText,
+                        onValueChange = { quickJsonText = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp),
+                        placeholder = { Text("Paste JSON here...", color = TextMuted, fontSize = 12.sp) },
+                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, color = TextMain)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val ok = backupManager.importFromJsonString(quickJsonText)
+                        if (ok) {
+                            httpPort = prefs.httpPort.toString()
+                            wsPort = prefs.wsPort.toString()
+                            chatSound = prefs.chatSoundEnabled
+                            alertSound = prefs.alertSoundEnabled
+                            keepScreenAwake = prefs.keepScreenAwake
+                            autoStart = prefs.autoStartMonitoring
+                            lowResource = prefs.lowResourceMode
+                            clearOldChat = prefs.clearOldChat
+                            controller.ollamaBot.startTimers()
+                            showQuickJsonDialog = false
+                            Toast.makeText(context, "Settings & timers successfully imported!", Toast.LENGTH_LONG).show()
+                        } else {
+                            Toast.makeText(context, "Invalid JSON format.", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = KickGreen, contentColor = Color.Black)
+                ) {
+                    Text("Import Now", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showQuickJsonDialog = false }) {
+                    Text("Cancel", color = TextMuted)
                 }
             }
         )
