@@ -16,7 +16,12 @@ class RelayWebSocketServer(
     port: Int,
     private val onLog: (String, String) -> Unit,
     private val onClientCountChanged: (Int) -> Unit
-) : WebSocketServer(InetSocketAddress("0.0.0.0", port)) {
+) : WebSocketServer(InetSocketAddress(port)) {
+
+    init {
+        isReuseAddr = true
+        isTcpNoDelay = true
+    }
 
     private val gson = Gson()
     private val connectedClients = Collections.newSetFromMap(ConcurrentHashMap<WebSocket, Boolean>())

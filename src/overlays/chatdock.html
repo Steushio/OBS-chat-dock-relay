@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OBS Chat Dock</title>
+  <script src="https://unpkg.com/mqtt@5.3.5/dist/mqtt.min.js"></script>
   <style>
     :root {
       --bg-dark: #18181b;
@@ -51,7 +52,7 @@
     /* Connection status bar */
     #status-bar {
       background-color: #0f0f11;
-      padding: 6px 10px;
+      padding: 6px 12px;
       font-size: 11px;
       border-bottom: 1px solid var(--border);
       display: flex;
@@ -62,7 +63,7 @@
       color: var(--text-muted);
       box-sizing: border-box;
       flex-shrink: 0;
-      min-height: 28px;
+      min-height: 36px;
     }
 
     .badge-indicator {
@@ -79,11 +80,11 @@
     /* Stream Info Header */
     #stream-header {
       background-color: #121214;
-      padding: 7px 12px;
-      font-size: 11px;
+      padding: 8px 12px;
+      font-size: 12px;
       color: var(--text-muted);
       line-height: 1.4;
-      min-height: 28px;
+      min-height: 36px;
       box-sizing: border-box;
       border-bottom: 1px solid rgba(255, 255, 255, 0.08);
       font-weight: 500;
@@ -725,50 +726,92 @@
       }
     }
 
+    let mqttClient = null;
+
     function connectCloudRoom(room) {
       activeCloudRoom = room;
       statusText.innerText = 'Connecting Cloud...';
       const connInfo = document.getElementById('connection-info');
       if (connInfo) connInfo.innerText = `Cloud Room: ${room}`;
 
-      // Query ?since=5m so ntfy immediately delivers recent stream update & viewer counts on connect!
-      const cloudWsUrl = `wss://ntfy.sh/${encodeURIComponent(room)}/ws?since=5m`;
-      ws = new WebSocket(cloudWsUrl);
+      // 1. Primary: Realtime High-Performance MQTT over WebSocket (Zero rate limit, instant streaming)
+      if (window.mqtt && !mqttClient) {
+        try {
+          const mqttTopic = 'obs_relay_' + room;
+          mqttClient = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
+            clientId: 'obs_dock_' + Math.random().toString(16).substring(2, 8),
+            keepalive: 30,
+            clean: true,
+            reconnectPeriod: 2500
+          });
+
+          mqttClient.on('connect', () => {
+            console.log('[MQTT] Connected to realtime cloud broker for room:', room);
+            statusDot.className = 'badge-indicator connected';
+            statusText.innerText = 'Cloud: ' + room;
+            mqttClient.subscribe(mqttTopic, { qos: 0 });
+          });
+
+          mqttClient.on('message', (topic, message) => {
+            try {
+              const payload = JSON.parse(message.toString());
+              handleWebSocketMessage(payload);
+            } catch (e) {
+              console.warn('[MQTT] Message parse error:', e);
+            }
+          });
+
+          mqttClient.on('error', (err) => {
+            console.warn('[MQTT] Realtime broker notice:', err);
+          });
+        } catch (err) {
+          console.warn('[MQTT] Init error:', err);
+        }
+      }
+
+      // 2. Secondary fallback: ntfy.sh WebSocket connection
+      try {
+        const cloudWsUrl = `wss://ntfy.sh/${encodeURIComponent(room)}/ws?since=10m`;
+        ws = new WebSocket(cloudWsUrl);
+
+        ws.onopen = () => {
+          statusDot.className = 'badge-indicator connected';
+          statusText.innerText = 'Cloud: ' + room;
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const raw = JSON.parse(event.data);
+            if (raw.event === 'message' && raw.message) {
+              const payload = JSON.parse(raw.message);
+              handleWebSocketMessage(payload);
+            } else if (raw.event && raw.data) {
+              handleWebSocketMessage(raw);
+            }
+          } catch (e) {
+            console.warn('[CloudDock] Message parse error:', e);
+          }
+        };
+
+        ws.onclose = () => {
+          if (!mqttClient || !mqttClient.connected) {
+            statusDot.className = 'badge-indicator disconnected';
+            statusText.innerText = 'Reconnecting Cloud...';
+          }
+          setTimeout(() => {
+            if (activeCloudRoom) connectCloudRoom(activeCloudRoom);
+          }, 3000);
+        };
+
+        ws.onerror = (err) => {
+          ws.close();
+        };
+      } catch (err) {}
 
       fetchRecentCloudHistory(room);
-
-      ws.onopen = () => {
-        statusDot.className = 'badge-indicator connected';
-        statusText.innerText = 'Cloud: ' + room;
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const raw = JSON.parse(event.data);
-          if (raw.event === 'message' && raw.message) {
-            const payload = JSON.parse(raw.message);
-            handleWebSocketMessage(payload);
-          } else if (raw.event && raw.data) {
-            handleWebSocketMessage(raw);
-          }
-        } catch (e) {
-          console.warn('[CloudDock] Message parse error:', e);
-        }
-      };
-
-      ws.onclose = () => {
-        statusDot.className = 'badge-indicator disconnected';
-        statusText.innerText = 'Reconnecting Cloud...';
-        setTimeout(() => connectCloudRoom(room), 3000);
-      };
-
-      ws.onerror = (err) => {
-        console.error('[CloudDock] Error:', err);
-        ws.close();
-      };
     }
 
-    // Connect to WebSocket using dynmically fetched configuration or Cloud Room
+    // Connect to WebSocket using dynamically fetched configuration or Cloud Room
     async function connect() {
       // 1. Check if Cloud Room mode is active via URL query param (?room=...) or hash (#...)
       const urlParams = new URLSearchParams(window.location.search);
@@ -781,7 +824,27 @@
 
       try {
         statusText.innerText = 'Connecting...';
-        // Get dynamic port from current origin Express status
+        // Pre-fetch recent messages & stream state via HTTP for instant rendering in app
+        try {
+          const recRes = await fetch('/api/recent-messages');
+          if (recRes.ok) {
+            const recData = await recRes.json();
+            if (recData.stream) {
+              handleWebSocketMessage({ event: 'stream_update', data: recData.stream });
+            }
+            if (recData.kickStream) {
+              handleWebSocketMessage({ event: 'kick_stream_update', data: recData.kickStream });
+            }
+            if (Array.isArray(recData.recentChats)) {
+              for (const chat of recData.recentChats) {
+                queueMessage(chat);
+              }
+              flushPendingMessages();
+            }
+          }
+        } catch (e) {}
+
+        // Get dynamic port from current origin status
         const response = await fetch('/status');
         const config = await response.json();
         

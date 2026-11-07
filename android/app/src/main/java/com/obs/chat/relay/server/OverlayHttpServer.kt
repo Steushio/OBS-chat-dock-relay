@@ -17,6 +17,10 @@ class OverlayHttpServer(
 ) : NanoHTTPD("0.0.0.0", port) {
 
     private val gson = Gson()
+    var getRecentChats: (() -> List<Any>)? = null
+    var getRecentAlerts: (() -> List<Any>)? = null
+    var getStreamState: (() -> Any?)? = null
+    var getKickState: (() -> Any?)? = null
 
     override fun serve(session: IHTTPSession): Response {
         val uri = session.uri
@@ -29,6 +33,16 @@ class OverlayHttpServer(
         }
 
         val response = when (uri) {
+            "/api/recent-messages" -> {
+                val data = mapOf(
+                    "recentChats" to (getRecentChats?.invoke() ?: emptyList<Any>()),
+                    "recentAlerts" to (getRecentAlerts?.invoke() ?: emptyList<Any>()),
+                    "stream" to getStreamState?.invoke(),
+                    "kickStream" to getKickState?.invoke()
+                )
+                newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(data))
+            }
+
             "/", "/status" -> {
                 val settings = getSettings()
                 val statusMap = mapOf(

@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.eclipse.paho.client.mqttv3.*
+import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence
 import java.net.URI
 import java.util.concurrent.TimeUnit
 
@@ -37,6 +39,8 @@ class RemoteRelayTransmitter(
     private var webSocket: WebSocket? = null
     private var reconnectJob: Job? = null
     private var reconnectAttempts = 0
+    private var mqttClient: MqttAsyncClient? = null
+    private var isMqttConnecting = false
     var isEnabled: Boolean = false
         private set
 
@@ -182,16 +186,77 @@ class RemoteRelayTransmitter(
         }
     }
 
-    private fun publishToCloudRoom(room: String, event: String, data: Any) {
-        val cleanRoom = room.trim()
-        if (cleanRoom.isBlank()) return
+    @Synchronized
+    fun ensureMqttConnected() {
+        val room = prefs.cloudRoomCode.ifEmpty { "steushio" }.trim()
+        if (room.isBlank()) return
+
+        if (mqttClient?.isConnected == true || isMqttConnecting) return
 
         try {
-            val jsonPayload = gson.toJson(mapOf(
-                "event" to event,
-                "data" to data,
-                "timestamp" to System.currentTimeMillis()
-            ))
+            isMqttConnecting = true
+            val clientId = "obs_relay_app_" + (1000..9999).random()
+            val client = MqttAsyncClient("tcp://broker.emqx.io:1883", clientId, MemoryPersistence())
+            mqttClient = client
+
+            val options = MqttConnectOptions().apply {
+                isAutomaticReconnect = true
+                isCleanSession = true
+                connectionTimeout = 5
+                keepAliveInterval = 30
+                setServerURIs(arrayOf("tcp://broker.emqx.io:1883", "tcp://broker.hivemq.com:1883"))
+            }
+
+            client.connect(options, null, object : IMqttActionListener {
+                override fun onSuccess(asyncActionToken: IMqttToken?) {
+                    isMqttConnecting = false
+                    onLog("[Cloud Network] Realtime MQTT connected (Room: $room)", "success")
+                }
+
+                override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
+                    isMqttConnecting = false
+                    onLog("[Cloud Network] Realtime broker reconnecting: ${exception?.message}", "info")
+                }
+            })
+        } catch (e: Exception) {
+            isMqttConnecting = false
+            onLog("[Cloud Network] Realtime broker error: ${e.message}", "info")
+        }
+    }
+
+    private fun publishToCloudMqtt(room: String, jsonPayload: String) {
+        val cleanRoom = room.trim().ifEmpty { "steushio" }
+        val topic = "obs_relay_$cleanRoom"
+        try {
+            if (mqttClient == null || mqttClient?.isConnected != true) {
+                ensureMqttConnected()
+            }
+            val msg = MqttMessage(jsonPayload.toByteArray(Charsets.UTF_8)).apply {
+                qos = 0
+            }
+            if (mqttClient?.isConnected == true) {
+                mqttClient?.publish(topic, msg)
+            }
+        } catch (e: Exception) {
+            // MQTT publish error
+        }
+    }
+
+    private fun publishToCloudRoom(room: String, event: String, data: Any) {
+        val cleanRoom = room.trim().ifEmpty { "steushio" }
+        if (cleanRoom.isBlank()) return
+
+        val jsonPayload = gson.toJson(mapOf(
+            "event" to event,
+            "data" to data,
+            "timestamp" to System.currentTimeMillis()
+        ))
+
+        // 1. Instant unlimited broadcast over Realtime MQTT Broker (0 rate limit)
+        publishToCloudMqtt(cleanRoom, jsonPayload)
+
+        // 2. Also publish to ntfy.sh as secondary fallback for history
+        try {
             val body = jsonPayload.toRequestBody("text/plain; charset=utf-8".toMediaType())
             val req = Request.Builder()
                 .url("https://ntfy.sh/$cleanRoom")
@@ -202,12 +267,12 @@ class RemoteRelayTransmitter(
             cloudHttpClient.newCall(req).execute().use { response ->
                 if (response.isSuccessful) {
                     onLog("[Cloud Room] Broadcast $event to room '$cleanRoom'", "info")
-                } else {
+                } else if (response.code != 429) {
                     onLog("[Cloud Room] Warning: HTTP ${response.code} from room '$cleanRoom'", "warning")
                 }
             }
         } catch (e: Exception) {
-            onLog("[Cloud Room] Error publishing $event: ${e.message}", "warning")
+            // Ignore secondary fallback errors
         }
     }
 
@@ -298,6 +363,13 @@ class RemoteRelayTransmitter(
         reconnectJob?.cancel()
         webSocket?.close(1000, "Stopped by user")
         webSocket = null
+        try {
+            if (mqttClient?.isConnected == true) {
+                mqttClient?.disconnect()
+            }
+            mqttClient?.close()
+        } catch (e: Exception) {}
+        mqttClient = null
         _isRemoteConnected.value = false
         _connectionStatus.value = "Disconnected"
     }

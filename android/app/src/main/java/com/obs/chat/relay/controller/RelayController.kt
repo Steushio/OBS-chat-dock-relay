@@ -280,6 +280,10 @@ class RelayController(private val context: Context) {
                 },
                 onLog = { msg, type -> logSystem(msg, type) }
             ).apply {
+                getRecentChats = { _recentChats.value }
+                getRecentAlerts = { _recentAlerts.value }
+                getStreamState = { _streamState.value }
+                getKickState = { _kickState.value }
                 start()
             }
         } catch (e: Exception) {
@@ -589,11 +593,25 @@ class RelayController(private val context: Context) {
                         val body = resp.body?.string() ?: ""
                         val isLive = body.contains("VIEW_COUNT_VIDEO_TYPE_LIVE") || body.contains("\"isLive\":true")
                         val isUpcoming = body.contains("\"status\":\"UPCOMING\"") || body.contains("\"upcomingEventData\"")
-                        val viewersPattern = Pattern.compile("\"viewCount\":\\{\"runs\":\\[\\{\"text\":\"([0-9,]+)\\s+watching")
-                        val viewersMatcher = viewersPattern.matcher(body)
-                        val viewers = if (viewersMatcher.find()) {
-                            viewersMatcher.group(1)?.replace(",", "")?.toIntOrNull() ?: 0
-                        } else 0
+                        var viewers = 0
+                        val vPatterns = listOf(
+                            Pattern.compile("\"viewCount\":\\{\"runs\":\\[\\{\"text\":\"([0-9,]+)\\s+watching"),
+                            Pattern.compile("\"content\":\"([0-9,]+)\\s+watching\""),
+                            Pattern.compile("\"accessibilityLabel\":\"([0-9,]+)\\s+watching\""),
+                            Pattern.compile("([0-9,]+)\\s+watching\\s+now"),
+                            Pattern.compile("([0-9,]+)\\s+watching"),
+                            Pattern.compile("\"concurrentViewers\":\"?([0-9]+)\"?")
+                        )
+                        for (p in vPatterns) {
+                            val m = p.matcher(body)
+                            if (m.find()) {
+                                val parsed = m.group(1)?.replace(",", "")?.toIntOrNull()
+                                if (parsed != null && parsed >= 0) {
+                                    viewers = parsed
+                                    break
+                                }
+                            }
+                        }
 
                         val titlePattern = Pattern.compile("<title>(.*?)(?: - YouTube)?</title>")
                         val titleMatcher = titlePattern.matcher(body)

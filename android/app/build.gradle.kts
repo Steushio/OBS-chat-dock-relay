@@ -65,6 +65,7 @@ dependencies {
     implementation(libs.gson)
     implementation(libs.okhttp)
     implementation(libs.play.services.code.scanner)
+    implementation(libs.paho.mqtt)
     implementation("androidx.webkit:webkit:1.12.0")
 
     debugImplementation(libs.androidx.ui.tooling)

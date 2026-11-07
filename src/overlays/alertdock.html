@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OBS Alert Dock</title>
+  <script src="https://unpkg.com/mqtt@5.3.5/dist/mqtt.min.js"></script>
   <style>
     :root {
       --bg-dark: #18181b;
@@ -281,48 +282,86 @@
       }
     }
 
+    let mqttClient = null;
+
     function connectCloudRoom(room) {
       statusText.innerText = 'Connecting Cloud...';
-      const cloudWsUrl = `wss://ntfy.sh/${encodeURIComponent(room)}/ws?since=15m`;
-      ws = new WebSocket(cloudWsUrl);
+      const connInfo = document.getElementById('connection-info');
+      if (connInfo) connInfo.innerText = `Cloud Room: ${room}`;
+
+      // 1. Realtime MQTT connection (Zero rate limit)
+      if (window.mqtt && !mqttClient) {
+        try {
+          const mqttTopic = 'obs_relay_' + room;
+          mqttClient = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
+            clientId: 'obs_alert_' + Math.random().toString(16).substring(2, 8),
+            keepalive: 30,
+            clean: true,
+            reconnectPeriod: 2500
+          });
+
+          mqttClient.on('connect', () => {
+            statusDot.className = 'badge-indicator connected';
+            statusText.innerText = 'Cloud: ' + room;
+            mqttClient.subscribe(mqttTopic, { qos: 0 });
+          });
+
+          mqttClient.on('message', (topic, message) => {
+            try {
+              const payload = JSON.parse(message.toString());
+              if (payload && (payload.event === 'alert' || payload.event === 'subscription')) {
+                appendAlert(payload.data);
+                playAlertSound();
+              }
+            } catch (e) {}
+          });
+        } catch (err) {}
+      }
+
+      // 2. Secondary fallback ntfy.sh
+      try {
+        const cloudWsUrl = `wss://ntfy.sh/${encodeURIComponent(room)}/ws?since=15m`;
+        ws = new WebSocket(cloudWsUrl);
+
+        ws.onopen = () => {
+          statusDot.className = 'badge-indicator connected';
+          statusText.innerText = 'Cloud: ' + room;
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const raw = JSON.parse(event.data);
+            let payload = null;
+            if (raw.event === 'message' && raw.message) {
+              payload = JSON.parse(raw.message);
+            } else if (raw.event && raw.data) {
+              payload = raw;
+            }
+            if (payload) {
+              if (payload.event === 'alert' || payload.event === 'subscription') {
+                appendAlert(payload.data);
+                playAlertSound();
+              }
+            }
+          } catch (e) {
+            console.warn('[CloudAlertDock] Parse error:', e);
+          }
+        };
+
+        ws.onclose = () => {
+          if (!mqttClient || !mqttClient.connected) {
+            statusDot.className = 'badge-indicator disconnected';
+            statusText.innerText = 'Reconnecting Cloud...';
+          }
+          setTimeout(() => connectCloudRoom(room), 3000);
+        };
+
+        ws.onerror = (err) => {
+          ws.close();
+        };
+      } catch (e) {}
 
       fetchRecentCloudHistory(room);
-
-      ws.onopen = () => {
-        statusDot.className = 'badge-indicator connected';
-        statusText.innerText = 'Cloud: ' + room;
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const raw = JSON.parse(event.data);
-          let payload = null;
-          if (raw.event === 'message' && raw.message) {
-            payload = JSON.parse(raw.message);
-          } else if (raw.event && raw.data) {
-            payload = raw;
-          }
-          if (payload) {
-            if (payload.event === 'alert' || payload.event === 'subscription') {
-              appendAlert(payload.data);
-              playAlertSound();
-            }
-          }
-        } catch (e) {
-          console.warn('[CloudAlertDock] Parse error:', e);
-        }
-      };
-
-      ws.onclose = () => {
-        statusDot.className = 'badge-indicator disconnected';
-        statusText.innerText = 'Reconnecting Cloud...';
-        setTimeout(() => connectCloudRoom(room), 3000);
-      };
-
-      ws.onerror = (err) => {
-        console.error('[CloudAlertDock] Error:', err);
-        ws.close();
-      };
     }
 
     async function connect() {
@@ -336,6 +375,19 @@
 
       try {
         statusText.innerText = 'Connecting...';
+        // Pre-fetch recent alerts for instant rendering in app
+        try {
+          const recRes = await fetch('/api/recent-messages');
+          if (recRes.ok) {
+            const recData = await recRes.json();
+            if (Array.isArray(recData.recentAlerts)) {
+              for (const alert of recData.recentAlerts) {
+                appendAlert(alert);
+              }
+            }
+          }
+        } catch (e) {}
+
         const response = await fetch('/status');
         const config = await response.json();
         
