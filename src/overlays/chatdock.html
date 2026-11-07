@@ -685,12 +685,16 @@
       }
     }
 
+    let activeCloudRoom = null;
+
     function connectCloudRoom(room) {
+      activeCloudRoom = room;
       statusText.innerText = 'Connecting Cloud...';
       const connInfo = document.getElementById('connection-info');
       if (connInfo) connInfo.innerText = `Cloud Room: ${room}`;
 
-      const cloudWsUrl = `wss://ntfy.sh/${encodeURIComponent(room)}/ws`;
+      // Query ?since=1h so ntfy immediately delivers the latest stream update & viewer counts on connect!
+      const cloudWsUrl = `wss://ntfy.sh/${encodeURIComponent(room)}/ws?since=1h`;
       ws = new WebSocket(cloudWsUrl);
 
       ws.onopen = () => {
@@ -856,7 +860,7 @@
         }
       }
 
-      if (event === 'kick_update') {
+      if (event === 'kick_update' || event === 'kick_stream_update') {
         updateKickViewersUI(data);
       }
 
@@ -1123,10 +1127,36 @@
       btn.classList.remove('success', 'failure');
       if (checkTimeout) clearTimeout(checkTimeout);
 
+      btn.classList.add('spinning');
+      checkingStream = true;
+
+      // In Cloud Room mode, query ntfy for cached messages
+      if (activeCloudRoom) {
+        try {
+          const res = await fetch(`https://ntfy.sh/${encodeURIComponent(activeCloudRoom)}/json?poll=1&since=1h`);
+          const text = await res.text();
+          const lines = text.trim().split('\n');
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+              const raw = JSON.parse(line);
+              if (raw.event === 'message' && raw.message) {
+                const payload = JSON.parse(raw.message);
+                handleWebSocketMessage(payload);
+              }
+            } catch(e) {}
+          }
+          checkingStream = false;
+          btn.classList.remove('spinning');
+          btn.classList.add('success');
+          setTimeout(() => btn.classList.remove('success'), 3000);
+          return;
+        } catch (err) {
+          console.error('[Cloud Refresh Error]', err);
+        }
+      }
+
       try {
-        btn.classList.add('spinning');
-        checkingStream = true;
-        
         // Start a 6-second timeout: if no active stream is intercepted, mark it as failure (red)
         checkTimeout = setTimeout(() => {
           if (checkingStream) {
