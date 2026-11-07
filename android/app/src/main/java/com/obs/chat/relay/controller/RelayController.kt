@@ -64,13 +64,15 @@ class RelayController(private val context: Context) {
         prefs = prefs,
         onBotReply = { botReply ->
             handleIncomingChatEvent(botReply)
-            sessionManager.postBotReplyToChat(
-                platform = botReply.platform,
-                videoId = prefs.youtubeVideoId,
-                chatroomId = kickState.value.chatroomId,
-                replyText = botReply.message ?: "",
-                ytSender = ytBotSender
-            )
+            if (botReply.type == "chat") {
+                sessionManager.postBotReplyToChat(
+                    platform = botReply.platform,
+                    videoId = prefs.youtubeVideoId,
+                    chatroomId = kickState.value.chatroomId,
+                    replyText = botReply.message ?: "",
+                    ytSender = ytBotSender
+                )
+            }
         },
         onLog = { msg, type -> logSystem(msg, type) }
     )

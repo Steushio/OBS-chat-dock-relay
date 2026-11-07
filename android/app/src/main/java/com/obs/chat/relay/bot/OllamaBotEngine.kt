@@ -81,17 +81,36 @@ class OllamaBotEngine(
         emptyList()
     }
 
+    private val recentGreetedSubs = Collections.synchronizedSet(mutableSetOf<String>())
+
     fun handleChatMessage(chat: ChatMessage) {
         val username = chat.username.trim()
         val message = chat.message?.trim() ?: return
 
-        // 1. Ignore if bot itself
-        if (isSelfOrIgnored(username)) return
+        // 1. Special Fossabot Subscriber Extraction (Only for Fossabot: wishes subscriber & alerts dock)
+        val cleanUser = username.lowercase().replace("@", "").trim()
+        if (cleanUser == "fossabot") {
+            handleFossabotMessage(message, chat.platform)
+            return // Never process Fossabot messages as normal chat or AI questions
+        }
+
+        // 2. Ignore bot accounts (our bot, nightbot, streamelements, moobot, etc.)
+        if (isBotAccount(username, chat.badges)) return
+
+        // 3. Ignore streamer account (@steushio / broadcaster)
+        if (isStreamerAccount(username, chat.badges)) return
+
+        // 4. Do not reply if viewer is talking to @steushio directly (not meant for the bot)
+        val lowerMessage = message.lowercase()
+        val botName = prefs.botName.lowercase().replace("@", "").trim()
+        if (lowerMessage.contains("@steushio") && !lowerMessage.contains("@$botName") && !lowerMessage.contains(botName)) {
+            return
+        }
 
         // Track real viewer chat activity for activity-gated timer messages
         recordUserMessageForTimers(chat.platform)
 
-        // 2. Strict 1-chat-per-question deduplication (prevents duplicate answers)
+        // 5. Strict 1-chat-per-question deduplication (prevents duplicate answers)
         val dedupeKey = if (chat.id.isNotBlank()) chat.id else "${username.lowercase()}:${message.lowercase()}"
         val now = System.currentTimeMillis()
         synchronized(recentAnsweredQuestions) {
@@ -102,7 +121,7 @@ class OllamaBotEngine(
             recentAnsweredQuestions[dedupeKey] = now
         }
 
-        // 3. Custom Commands (!discord, !specs, !socials - work instantly without needing AI)
+        // 6. Custom Commands (!discord, !specs, !socials - work instantly without needing AI)
         val commandReply = checkCustomCommands(message)
         if (commandReply != null) {
             dispatchBotReply(commandReply, chat.platform)
@@ -116,7 +135,7 @@ class OllamaBotEngine(
                 (prefs.aiProvider == "openai" && prefs.openaiApiKey.isNotBlank())
         if (!isAiActive) return
 
-        // 3. First-words welcoming
+        // 7. First-words welcoming
         val lowerUser = username.lowercase()
         val isFirstTime = !seenChatters.contains(lowerUser)
         if (isFirstTime) {
@@ -129,12 +148,10 @@ class OllamaBotEngine(
             }
         }
 
-        // 4. Auto-respond Trigger
+        // 8. Auto-respond Trigger
         val autoRespondMode = prefs.autoRespond // "off", "mention_only", "questions_and_mentions", "all_chat"
         if (autoRespondMode == "off") return
 
-        val botName = prefs.botName.lowercase()
-        val lowerMessage = message.lowercase()
         val isMentioned = lowerMessage.contains("@$botName") || lowerMessage.contains(botName)
 
         val shouldRespond = when (autoRespondMode) {
@@ -151,13 +168,113 @@ class OllamaBotEngine(
         }
     }
 
-    private fun isSelfOrIgnored(username: String): Boolean {
+    private fun handleFossabotMessage(message: String, platform: String) {
+        val lower = message.lowercase().trim()
+        if (!lower.contains("subscrib") && !lower.contains("subbed")) {
+            return
+        }
+
+        // Patterns to match:
+        // "@fossabot s1 just subscribed" -> s1
+        // "s1 just subscribed!" -> s1
+        // "Thanks s1 for subscribing!" -> s1
+        // "s1 has subscribed to the channel" -> s1
+        val patterns = listOf(
+            java.util.regex.Pattern.compile("""(?i)(?:@fossabot\s+)?([a-zA-Z0-9_\- ]+?)\s+(?:has\s+|just\s+)?(?:subscribed|subbed)"""),
+            java.util.regex.Pattern.compile("""(?i)(?:thanks(?:\s+to)?\s+)@?([a-zA-Z0-9_\-]+)\s+for\s+(?:subscribing|the\s+sub)"""),
+            java.util.regex.Pattern.compile("""(?i)welcome\s+@?([a-zA-Z0-9_\-]+)\s+to\s+the\s+"""),
+            java.util.regex.Pattern.compile("""(?i)@?([a-zA-Z0-9_\-]+)\s+is\s+now\s+subscribed""")
+        )
+
+        var subscriberName: String? = null
+        for (pattern in patterns) {
+            val matcher = pattern.matcher(message)
+            if (matcher.find()) {
+                val candidate = matcher.group(1)?.trim()?.replace("@", "")?.trimEnd('!', '.', ',')
+                if (!candidate.isNullOrBlank() && !candidate.equals("fossabot", ignoreCase = true) && candidate.length < 35) {
+                    subscriberName = candidate
+                    break
+                }
+            }
+        }
+
+        if (subscriberName == null) {
+            val parts = message.split(Regex("\\s+"))
+            val subIdx = parts.indexOfFirst { it.lowercase().contains("subscrib") || it.lowercase().contains("subbed") }
+            if (subIdx > 0) {
+                var prev = parts[subIdx - 1].replace("@", "").trimEnd('!', '.', ',')
+                if (prev.equals("just", ignoreCase = true) && subIdx > 1) {
+                    prev = parts[subIdx - 2].replace("@", "").trimEnd('!', '.', ',')
+                }
+                if (prev.isNotBlank() && !prev.equals("fossabot", ignoreCase = true)) {
+                    subscriberName = prev
+                }
+            }
+        }
+
+        if (subscriberName.isNullOrBlank()) {
+            onLog("[Fossabot] Subscription detected but could not parse name: \"$message\"", "warning")
+            return
+        }
+
+        val key = subscriberName.lowercase()
+        if (recentGreetedSubs.contains(key)) return
+        recentGreetedSubs.add(key)
+
+        onLog("🎉 [Fossabot Sub Alert] Detected new subscriber: $subscriberName", "success")
+
+        // 1. Dispatch short warm chat greeting
+        val greeting = "Thanks for subscribing, $subscriberName! Welcome to the squad! 🎉"
+        dispatchBotReply(greeting, platform)
+
+        // 2. Dispatch subscriber alert event to OBS custom dock & alert overlay
+        val subAlert = ChatMessage(
+            platform = platform,
+            type = "subscription",
+            id = "sub_fossa_${System.currentTimeMillis()}",
+            username = subscriberName,
+            message = "Just subscribed!",
+            timestamp = System.currentTimeMillis()
+        )
+        onBotReply(subAlert)
+    }
+
+    private fun isBotAccount(username: String, badges: List<String> = emptyList()): Boolean {
         val clean = username.lowercase().replace("@", "").trim()
         val botName = prefs.botName.lowercase().replace("@", "").trim()
         if (clean == botName || clean == "cutie bot" || clean == "cutiebot") return true
+        if (badges.any { it.equals("bot", ignoreCase = true) }) return true
 
-        val ignored = prefs.ignoredUsers.split(",").map { it.lowercase().replace("@", "").trim() }
+        val knownBots = setOf(
+            "fossabot",
+            "nightbot",
+            "streamelements",
+            "moobot",
+            "botrix",
+            "wizebot",
+            "restreambot",
+            "streamlabs",
+            "youtube",
+            "kickbot"
+        )
+        if (knownBots.contains(clean)) return true
+
+        val ignored = prefs.ignoredUsers.split(",").map { it.lowercase().replace("@", "").trim() }.filter { it.isNotBlank() }
         return ignored.contains(clean)
+    }
+
+    private fun isStreamerAccount(username: String, badges: List<String> = emptyList()): Boolean {
+        val clean = username.lowercase().replace("@", "").trim()
+        val kickUser = prefs.kickUsername.lowercase().replace("@", "").trim()
+
+        if (clean == "steushio" || (kickUser.isNotBlank() && clean == kickUser)) return true
+
+        if (badges.any { 
+            it.equals("broadcaster", ignoreCase = true) || 
+            it.equals("owner", ignoreCase = true) 
+        }) return true
+
+        return false
     }
 
     private fun isQuestion(message: String): Boolean {

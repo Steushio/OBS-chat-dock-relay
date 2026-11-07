@@ -32,7 +32,8 @@ data class StreamState(
     @SerializedName("videoId") val videoId: String? = null,
     @SerializedName("liveState") val liveState: String = "offline",
     @SerializedName("title") val title: String? = null,
-    @SerializedName("viewers") val viewers: Int = 0
+    @SerializedName("viewers") val viewers: Int = 0,
+    @SerializedName("concurrentViewers") val concurrentViewers: Int = viewers
 )
 
 data class KickState(

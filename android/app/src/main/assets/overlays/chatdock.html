@@ -814,12 +814,12 @@
           audioSettings = data.audioSettings;
         }
         if (data.stream) {
-          streamHeader.innerText = `Stream: ${data.stream.title} (${data.stream.liveState})`;
-          if (data.stream.liveState === 'live' && data.stream.concurrentViewers !== undefined && data.stream.concurrentViewers !== null) {
-            viewersCount.innerText = data.stream.concurrentViewers;
+          const s = data.stream;
+          streamHeader.innerText = `Stream: ${s.title || 'Live Stream'} (${s.liveState || 'live'})`;
+          const v = s.concurrentViewers !== undefined ? s.concurrentViewers : s.viewers;
+          if (v !== undefined && v !== null) {
+            viewersCount.innerText = v;
             viewersCountBadge.style.display = 'inline-flex';
-          } else {
-            viewersCountBadge.style.display = 'none';
           }
         }
         if (data.kickStream) {
@@ -827,15 +827,16 @@
         }
       }
 
-      if (event === 'stream_update') {
-        const isLive = data && data.liveState === 'live';
+      if (event === 'stream_update' || event === 'stream-state-changed') {
+        const isLive = data && (data.liveState === 'live' || data.liveState === 'monitoring');
         if (data) {
-          streamHeader.innerText = `Stream: ${data.title} (${data.liveState})`;
-          if (data.liveState === 'live' && data.concurrentViewers !== undefined && data.concurrentViewers !== null) {
-            viewersCount.innerText = data.concurrentViewers;
+          if (data.title) {
+            streamHeader.innerText = `Stream: ${data.title} (${data.liveState || 'live'})`;
+          }
+          const v = data.concurrentViewers !== undefined ? data.concurrentViewers : data.viewers;
+          if (v !== undefined && v !== null) {
+            viewersCount.innerText = v;
             viewersCountBadge.style.display = 'inline-flex';
-          } else {
-            viewersCountBadge.style.display = 'none';
           }
         } else {
           streamHeader.innerText = 'No Active Stream';
@@ -874,7 +875,7 @@
         renderPollCard(data);
       }
 
-      if (event === 'chat' || event === 'alert') {
+      if (event === 'chat' || event === 'alert' || event === 'subscription') {
         if (data.type === 'poll' || data.type === 'poll_ended') {
           renderPollCard(data);
         } else {
