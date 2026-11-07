@@ -749,7 +749,7 @@
             console.log('[MQTT] Connected to realtime cloud broker for room:', room);
             statusDot.className = 'badge-indicator connected';
             statusText.innerText = 'Cloud: ' + room;
-            mqttClient.subscribe(mqttTopic, { qos: 0 });
+            mqttClient.subscribe([mqttTopic, mqttTopic + '/#'], { qos: 0 });
           });
 
           mqttClient.on('message', (topic, message) => {
@@ -1067,18 +1067,31 @@
         return;
       }
 
-      // Prevent duplicate messages by content within 2.5 seconds
+      // Prevent duplicate messages by content (2.5s for normal users, 10s for bot replies)
       const now = Date.now();
       const rawText = (item.message || '').trim().toLowerCase();
       if (rawText) {
-        const dedupeKey = `${(item.username || '').toLowerCase()}:${rawText}`;
+        const u = (item.username || '').toLowerCase();
+        const isBot = u.includes('bot') || u.includes('cutie') ||
+                      (Array.isArray(item.badges) && item.badges.some(b => typeof b === 'string' && (b.toLowerCase().includes('bot') || b.toLowerCase().includes('mod'))));
+
+        const dedupeKey = `${u}:${rawText}`;
         if (recentMessagesCache.has(dedupeKey) && (now - recentMessagesCache.get(dedupeKey) < 2500)) {
           return;
         }
+
+        if (isBot) {
+          const botKey = `bot_text:${rawText}`;
+          if (recentMessagesCache.has(botKey) && (now - recentMessagesCache.get(botKey) < 10000)) {
+            return;
+          }
+          recentMessagesCache.set(botKey, now);
+        }
+
         recentMessagesCache.set(dedupeKey, now);
-        if (recentMessagesCache.size > 80) {
+        if (recentMessagesCache.size > 120) {
           for (const [key, time] of recentMessagesCache.entries()) {
-            if (now - time > 5000) recentMessagesCache.delete(key);
+            if (now - time > 12000) recentMessagesCache.delete(key);
           }
         }
       }

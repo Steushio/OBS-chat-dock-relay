@@ -69,8 +69,15 @@ class RelayController(private val context: Context) {
     val ollamaBot = OllamaBotEngine(
         prefs = prefs,
         onBotReply = { botReply ->
-            handleIncomingChatEvent(botReply)
-            if (botReply.type == "chat") {
+            val willPostToLiveChat = botReply.type == "chat" && (
+                (botReply.platform == "youtube" && sessionManager.ytBotLoggedIn.value) ||
+                (botReply.platform == "kick" && sessionManager.kickBotLoggedIn.value)
+            )
+
+            if (willPostToLiveChat) {
+                // Post directly to YouTube/Kick live chat.
+                // The live chat observer will capture the real message from YouTube/Kick as the actual bot handle (@cutiebot.0),
+                // so we do not dispatch an extra duplicate synthetic message to docks.
                 sessionManager.postBotReplyToChat(
                     platform = botReply.platform,
                     videoId = prefs.youtubeVideoId,
@@ -78,6 +85,9 @@ class RelayController(private val context: Context) {
                     replyText = botReply.message ?: "",
                     ytSender = ytBotSender
                 )
+            } else {
+                // When bot is unauthenticated or offline, show synthetic message on dock so streamer still sees replies
+                handleIncomingChatEvent(botReply)
             }
         },
         onLog = { msg, type -> logSystem(msg, type) }
@@ -123,6 +133,13 @@ class RelayController(private val context: Context) {
     init {
         refreshIp()
         initStudioMonitor()
+        remoteTransmitter.onMqttConnected = {
+            scope.launch {
+                delay(300)
+                remoteTransmitter.forwardEvent("stream_update", _streamState.value)
+                remoteTransmitter.forwardEvent("kick_stream_update", _kickState.value)
+            }
+        }
         if (prefs.remoteForwardingEnabled && prefs.remoteTargetHost.isNotBlank()) {
             remoteTransmitter.start()
         }
@@ -569,9 +586,7 @@ class RelayController(private val context: Context) {
                         )
                         _kickState.value = newState
                         wsServer?.broadcastEvent("kick_stream_update", newState)
-                        if (hasChanged) {
-                            remoteTransmitter.forwardEvent("kick_stream_update", newState)
-                        }
+                        remoteTransmitter.forwardEvent("kick_stream_update", newState)
                     }
                 }
             } catch (e: Exception) {}
@@ -595,6 +610,9 @@ class RelayController(private val context: Context) {
                         val isUpcoming = body.contains("\"status\":\"UPCOMING\"") || body.contains("\"upcomingEventData\"")
                         var viewers = 0
                         val vPatterns = listOf(
+                            Pattern.compile("\"viewCount\":\\{\"runs\":\\[\\{\"text\":\"([0-9,]+)\"\\},\\{\"text\":\"\\s*watching"),
+                            Pattern.compile("\"originalViewCount\":\"([0-9,]+)\""),
+                            Pattern.compile("\\{\"text\":\"([0-9,]+)\"\\},\\{\"text\":\"\\s*watching\\s*now\""),
                             Pattern.compile("\"viewCount\":\\{\"runs\":\\[\\{\"text\":\"([0-9,]+)\\s+watching"),
                             Pattern.compile("\"content\":\"([0-9,]+)\\s+watching\""),
                             Pattern.compile("\"accessibilityLabel\":\"([0-9,]+)\\s+watching\""),
@@ -633,9 +651,7 @@ class RelayController(private val context: Context) {
                         wsServer?.currentStreamState = newState
                         wsServer?.broadcastEvent("stream_update", newState)
                         wsServer?.broadcastEvent("stream-state-changed", newState)
-                        if (hasChanged) {
-                            remoteTransmitter.forwardEvent("stream_update", newState)
-                        }
+                        remoteTransmitter.forwardEvent("stream_update", newState)
                     }
                 }
             } catch (e: Exception) {
@@ -714,7 +730,7 @@ class RelayController(private val context: Context) {
                 if (prefs.kickEnabled && prefs.kickUsername.isNotBlank()) {
                     pollKickChannelData(prefs.kickUsername)
                 }
-                delay(45000)
+                delay(15000)
             }
         }
         ytPollJob = scope.launch(Dispatchers.IO) {
@@ -731,7 +747,7 @@ class RelayController(private val context: Context) {
                         pollYouTubeChannelForLive(handleToTry)
                     }
                 }
-                delay(45000)
+                delay(15000)
             }
         }
     }

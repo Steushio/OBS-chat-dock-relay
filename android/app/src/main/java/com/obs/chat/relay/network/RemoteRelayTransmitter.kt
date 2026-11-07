@@ -41,6 +41,7 @@ class RemoteRelayTransmitter(
     private var reconnectAttempts = 0
     private var mqttClient: MqttAsyncClient? = null
     private var isMqttConnecting = false
+    var onMqttConnected: (() -> Unit)? = null
     var isEnabled: Boolean = false
         private set
 
@@ -211,6 +212,9 @@ class RemoteRelayTransmitter(
                 override fun onSuccess(asyncActionToken: IMqttToken?) {
                     isMqttConnecting = false
                     onLog("[Cloud Network] Realtime MQTT connected (Room: $room)", "success")
+                    try {
+                        onMqttConnected?.invoke()
+                    } catch (e: Exception) {}
                 }
 
                 override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
@@ -224,7 +228,7 @@ class RemoteRelayTransmitter(
         }
     }
 
-    private fun publishToCloudMqtt(room: String, jsonPayload: String) {
+    private fun publishToCloudMqtt(room: String, jsonPayload: String, retained: Boolean = false) {
         val cleanRoom = room.trim().ifEmpty { "steushio" }
         val topic = "obs_relay_$cleanRoom"
         try {
@@ -233,9 +237,14 @@ class RemoteRelayTransmitter(
             }
             val msg = MqttMessage(jsonPayload.toByteArray(Charsets.UTF_8)).apply {
                 qos = 0
+                isRetained = retained
             }
             if (mqttClient?.isConnected == true) {
                 mqttClient?.publish(topic, msg)
+                if (retained) {
+                    // Also publish to /stream subtopic for clients subscribing specifically
+                    mqttClient?.publish("$topic/stream", msg)
+                }
             }
         } catch (e: Exception) {
             // MQTT publish error
@@ -252,8 +261,12 @@ class RemoteRelayTransmitter(
             "timestamp" to System.currentTimeMillis()
         ))
 
+        // Retain stream state so docks connecting at any time get the viewer count immediately!
+        val isStreamStateEvent = event == "stream_update" || event == "kick_stream_update" ||
+                event == "stream-state-changed" || event == "kick_update"
+
         // 1. Instant unlimited broadcast over Realtime MQTT Broker (0 rate limit)
-        publishToCloudMqtt(cleanRoom, jsonPayload)
+        publishToCloudMqtt(cleanRoom, jsonPayload, retained = isStreamStateEvent)
 
         // 2. Also publish to ntfy.sh as secondary fallback for history
         try {
