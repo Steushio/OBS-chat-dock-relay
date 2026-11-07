@@ -17,7 +17,9 @@ import java.util.concurrent.TimeUnit
 class OllamaBotEngine(
     private val prefs: PreferencesManager,
     private val onBotReply: (ChatMessage) -> Unit,
-    private val onLog: (String, String) -> Unit
+    private val onLog: (String, String) -> Unit,
+    var getBotNames: (() -> List<String>)? = null,
+    var getStreamerNames: (() -> List<String>)? = null
 ) {
 
     private val gson = Gson()
@@ -34,6 +36,9 @@ class OllamaBotEngine(
     private var lastAiResponseTime = 0L
     private var isGenerating = false
     private var timersJob: Job? = null
+
+    // Cache of recent bot-sent message bodies to prevent echo loops
+    private val recentSentBotMessages = Collections.synchronizedSet(mutableSetOf<String>())
 
     // Deduplication cache to strictly enforce ONE response per question/message (prevents double replies)
     private val recentAnsweredQuestions = Collections.synchronizedMap(object : LinkedHashMap<String, Long>(50, 0.75f, true) {
@@ -84,8 +89,19 @@ class OllamaBotEngine(
     private val recentGreetedSubs = Collections.synchronizedSet(mutableSetOf<String>())
 
     fun handleChatMessage(chat: ChatMessage) {
+        // Fast-path: Never process internal bot messages
+        if (chat.id.startsWith("bot_") || chat.badges.any { it.equals("bot", ignoreCase = true) }) {
+            return
+        }
+
         val username = chat.username.trim()
         val message = chat.message?.trim() ?: return
+
+        // Fast-path: Skip if message text matches any recent bot reply sent by this bot
+        val cleanMsg = message.lowercase()
+        if (recentSentBotMessages.contains(cleanMsg)) {
+            return
+        }
 
         // 1. Special Fossabot Subscriber Extraction (Only for Fossabot: wishes subscriber & alerts dock)
         val cleanUser = username.lowercase().replace("@", "").trim()
@@ -239,11 +255,29 @@ class OllamaBotEngine(
         onBotReply(subAlert)
     }
 
-    private fun isBotAccount(username: String, badges: List<String> = emptyList()): Boolean {
-        val clean = username.lowercase().replace("@", "").trim()
-        val botName = prefs.botName.lowercase().replace("@", "").trim()
-        if (clean == botName || clean == "cutie bot" || clean == "cutiebot") return true
+    fun isBotAccount(username: String, badges: List<String> = emptyList()): Boolean {
         if (badges.any { it.equals("bot", ignoreCase = true) }) return true
+
+        val clean = username.lowercase().replace("@", "").trim()
+        val alphanumeric = clean.replace(Regex("[^a-z0-9]"), "")
+
+        // Check configured bot name & logged-in accounts
+        val botNames = mutableListOf(prefs.botName)
+        getBotNames?.invoke()?.let { botNames.addAll(it) }
+
+        for (b in botNames) {
+            val bClean = b.lowercase().replace("@", "").trim()
+            if (bClean.isBlank()) continue
+            val bAlpha = bClean.replace(Regex("[^a-z0-9]"), "")
+            if (clean == bClean || alphanumeric == bAlpha || alphanumeric.startsWith(bAlpha) || clean.startsWith(bClean)) {
+                return true
+            }
+        }
+
+        // Known variants of our bot
+        if (clean.contains("cutiebot") || clean.contains("cutie bot") || alphanumeric.contains("cutiebot")) {
+            return true
+        }
 
         val knownBots = setOf(
             "fossabot",
@@ -255,24 +289,39 @@ class OllamaBotEngine(
             "restreambot",
             "streamlabs",
             "youtube",
-            "kickbot"
+            "kickbot",
+            "cloudbot"
         )
-        if (knownBots.contains(clean)) return true
+        if (knownBots.any { clean == it || alphanumeric.startsWith(it) || clean.startsWith(it) }) return true
 
         val ignored = prefs.ignoredUsers.split(",").map { it.lowercase().replace("@", "").trim() }.filter { it.isNotBlank() }
-        return ignored.contains(clean)
+        return ignored.any { clean == it || alphanumeric == it.replace(Regex("[^a-z0-9]"), "") }
     }
 
-    private fun isStreamerAccount(username: String, badges: List<String> = emptyList()): Boolean {
-        val clean = username.lowercase().replace("@", "").trim()
-        val kickUser = prefs.kickUsername.lowercase().replace("@", "").trim()
-
-        if (clean == "steushio" || (kickUser.isNotBlank() && clean == kickUser)) return true
-
+    fun isStreamerAccount(username: String, badges: List<String> = emptyList()): Boolean {
         if (badges.any { 
             it.equals("broadcaster", ignoreCase = true) || 
             it.equals("owner", ignoreCase = true) 
         }) return true
+
+        val clean = username.lowercase().replace("@", "").trim()
+        val alphanumeric = clean.replace(Regex("[^a-z0-9]"), "")
+
+        if (clean == "steushio" || clean.contains("steushio") || alphanumeric.contains("steushio")) {
+            return true
+        }
+
+        val streamerNames = mutableListOf("steushio", prefs.kickUsername)
+        getStreamerNames?.invoke()?.let { streamerNames.addAll(it) }
+
+        for (s in streamerNames) {
+            val sClean = s.lowercase().replace("@", "").trim()
+            if (sClean.isBlank()) continue
+            val sAlpha = sClean.replace(Regex("[^a-z0-9]"), "")
+            if (clean == sClean || alphanumeric == sAlpha || alphanumeric.startsWith(sAlpha) || clean.startsWith(sClean)) {
+                return true
+            }
+        }
 
         return false
     }
@@ -900,6 +949,13 @@ class OllamaBotEngine(
     }
 
     private fun dispatchBotReply(text: String, platform: String) {
+        val cleanText = text.trim().lowercase()
+        recentSentBotMessages.add(cleanText)
+        if (recentSentBotMessages.size > 200) {
+            recentSentBotMessages.clear()
+            recentSentBotMessages.add(cleanText)
+        }
+
         val botMessage = ChatMessage(
             type = "chat",
             platform = platform,

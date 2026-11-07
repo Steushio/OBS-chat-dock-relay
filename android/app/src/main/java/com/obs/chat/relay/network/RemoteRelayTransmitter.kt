@@ -27,8 +27,16 @@ class RemoteRelayTransmitter(
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()
 
+    // Dedicated HTTP client for Cloud Room and REST push with proper timeouts
+    private val cloudHttpClient = OkHttpClient.Builder()
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(5, TimeUnit.SECONDS)
+        .writeTimeout(5, TimeUnit.SECONDS)
+        .build()
+
     private var webSocket: WebSocket? = null
     private var reconnectJob: Job? = null
+    private var reconnectAttempts = 0
     var isEnabled: Boolean = false
         private set
 
@@ -98,6 +106,7 @@ class RemoteRelayTransmitter(
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 _isRemoteConnected.value = true
+                reconnectAttempts = 0
                 _connectionStatus.value = "Connected to OBS PC"
                 onLog("[Remote Relay] Successfully connected to PC overlay at $url! Streaming chat online...", "success")
 
@@ -174,27 +183,37 @@ class RemoteRelayTransmitter(
     }
 
     private fun publishToCloudRoom(room: String, event: String, data: Any) {
+        val cleanRoom = room.trim()
+        if (cleanRoom.isBlank()) return
+
         try {
             val jsonPayload = gson.toJson(mapOf(
                 "event" to event,
                 "data" to data,
                 "timestamp" to System.currentTimeMillis()
             ))
-            val body = jsonPayload.toRequestBody("application/json".toMediaType())
+            val body = jsonPayload.toRequestBody("text/plain; charset=utf-8".toMediaType())
             val req = Request.Builder()
-                .url("https://ntfy.sh/$room")
+                .url("https://ntfy.sh/$cleanRoom")
                 .header("User-Agent", "OBSChatRelay-Android")
                 .post(body)
                 .build()
-            client.newCall(req).execute().close()
+
+            cloudHttpClient.newCall(req).execute().use { response ->
+                if (response.isSuccessful) {
+                    onLog("[Cloud Room] Broadcast $event to room '$cleanRoom'", "info")
+                } else {
+                    onLog("[Cloud Room] Warning: HTTP ${response.code} from room '$cleanRoom'", "warning")
+                }
+            }
         } catch (e: Exception) {
-            // Silently handled
+            onLog("[Cloud Room] Error publishing $event: ${e.message}", "warning")
         }
     }
 
     private fun httpPushFallback(event: String, data: Any) {
         val target = prefs.remoteTargetHost.trim()
-        if (target.isBlank()) return
+        if (target.isBlank() || !isEnabled) return
 
         var httpUrl = target
         if (!httpUrl.startsWith("http://") && !httpUrl.startsWith("https://")) {
@@ -216,12 +235,15 @@ class RemoteRelayTransmitter(
                 .post(body)
                 .build()
 
-            val response = client.newCall(request).execute()
-            if (response.isSuccessful) {
-                _connectionStatus.value = "HTTP Push Active ($target)"
+            cloudHttpClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    _connectionStatus.value = "HTTP Push Active ($target)"
+                } else {
+                    _connectionStatus.value = "Push Failed (${response.code})"
+                }
             }
         } catch (e: Exception) {
-            // Error logged on reconnect attempts
+            _connectionStatus.value = "Push Failed (${e.message})"
         }
     }
 
@@ -229,10 +251,17 @@ class RemoteRelayTransmitter(
         if (!isEnabled) return
         reconnectJob?.cancel()
         reconnectJob = scope.launch {
-            delay(5000)
-            if (isEnabled) {
-                onLog("[Remote Relay] Attempting to reconnect to PC overlay...", "info")
-                connectWebSocket(prefs.remoteTargetHost)
+            val backoffSeconds = (5L * (1 shl reconnectAttempts.coerceAtMost(3))).coerceAtMost(30L)
+            delay(backoffSeconds * 1000L)
+            if (isEnabled && !_isRemoteConnected.value) {
+                val target = prefs.remoteTargetHost.trim()
+                if (target.isNotBlank()) {
+                    reconnectAttempts++
+                    if (reconnectAttempts <= 3 || reconnectAttempts % 5 == 0) {
+                        onLog("[Remote Relay] Attempting to reconnect to PC overlay ($target)...", "info")
+                    }
+                    connectWebSocket(target)
+                }
             }
         }
     }
@@ -251,11 +280,12 @@ class RemoteRelayTransmitter(
                 .get()
                 .build()
 
-            val res = client.newCall(req).execute()
-            if (res.isSuccessful) {
-                return@withContext Pair(true, "Successfully reached PC Overlay HTTP Server! (${res.code})")
-            } else {
-                return@withContext Pair(false, "Server reached but returned HTTP ${res.code}")
+            cloudHttpClient.newCall(req).execute().use { res ->
+                if (res.isSuccessful) {
+                    return@withContext Pair(true, "Successfully reached PC Overlay HTTP Server! (${res.code})")
+                } else {
+                    return@withContext Pair(false, "Server reached but returned HTTP ${res.code}")
+                }
             }
         } catch (e: Exception) {
             return@withContext Pair(false, "Cannot connect: ${e.message}")
@@ -264,6 +294,7 @@ class RemoteRelayTransmitter(
 
     fun stop() {
         isEnabled = false
+        reconnectAttempts = 0
         reconnectJob?.cancel()
         webSocket?.close(1000, "Stopped by user")
         webSocket = null

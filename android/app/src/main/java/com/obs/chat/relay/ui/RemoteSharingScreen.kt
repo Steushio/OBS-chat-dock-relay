@@ -280,9 +280,9 @@ fun RemoteSharingScreen() {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         if (remoteEnabled)
-                            "Connecting directly to your PC IP or localtunnel server."
+                            "Connecting directly to your PC IP or localtunnel server. (Keep this OFF if using Free Cloud Room)."
                         else
-                            "Disabled. (You are using the Free Cloud Room above).",
+                            "Disabled (Recommended for Free Cloud Room - no PC setup needed).",
                         fontSize = 11.sp,
                         color = TextMuted
                     )

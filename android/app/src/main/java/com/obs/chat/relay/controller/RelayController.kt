@@ -59,6 +59,12 @@ class RelayController(private val context: Context) {
         onLog = { msg, type -> logSystem(msg, type) }
     )
 
+    // Account & Login Session Manager (YouTube / Kick Broadcaster & Bot accounts)
+    val sessionManager = com.obs.chat.relay.session.AccountSessionManager(
+        context = context,
+        onLog = { msg, type -> logSystem(msg, type) }
+    )
+
     // Full Ollama AI Bot Engine
     val ollamaBot = OllamaBotEngine(
         prefs = prefs,
@@ -75,13 +81,10 @@ class RelayController(private val context: Context) {
             }
         },
         onLog = { msg, type -> logSystem(msg, type) }
-    )
-
-    // Account & Login Session Manager (YouTube / Kick Broadcaster & Bot accounts)
-    val sessionManager = com.obs.chat.relay.session.AccountSessionManager(
-        context = context,
-        onLog = { msg, type -> logSystem(msg, type) }
-    )
+    ).apply {
+        getBotNames = { listOfNotNull(prefs.botName, sessionManager.ytBotName.value, sessionManager.kickBotName.value) }
+        getStreamerNames = { listOfNotNull("steushio", prefs.kickUsername, sessionManager.ytBroadcasterName.value, sessionManager.kickBroadcasterName.value) }
+    }
 
     // Settings Backup & Restore Manager (Export / Import .json)
     val backupManager = com.obs.chat.relay.util.SettingsBackupManager(prefs)
@@ -155,6 +158,7 @@ class RelayController(private val context: Context) {
         val resolvedState = if (liveState.isNotBlank()) liveState else "live"
         val resolvedViewers = if (viewers > 0) viewers else _streamState.value.viewers
 
+        val hasChanged = cleanId != oldId || liveState != oldState || resolvedViewers != _streamState.value.viewers
         _streamState.value = StreamState(
             videoId = cleanId,
             title = resolvedTitle,
@@ -173,7 +177,9 @@ class RelayController(private val context: Context) {
         wsServer?.currentStreamState = _streamState.value
         wsServer?.broadcastEvent("stream_update", _streamState.value)
         wsServer?.broadcastEvent("stream-state-changed", _streamState.value)
-        remoteTransmitter.forwardEvent("stream_update", _streamState.value)
+        if (hasChanged) {
+            remoteTransmitter.forwardEvent("stream_update", _streamState.value)
+        }
 
         if (cleanId != oldId || liveState != oldState) {
             logSystem("🛰️ [YouTube Studio] Live stream active! Video ID: $cleanId (State: $resolvedState, Viewers: $resolvedViewers)", "success")
@@ -429,8 +435,13 @@ class RelayController(private val context: Context) {
                     soundPlayer.playTone("chat")
                 }
 
-                // AI Bot Processing
-                if (event.username != prefs.botName) {
+                // AI Bot Processing: Strictly skip if bot's own message, third-party bots, or streamer
+                val isBot = event.id.startsWith("bot_") ||
+                        event.badges.any { it.equals("bot", ignoreCase = true) } ||
+                        ollamaBot.isBotAccount(event.username, event.badges)
+                val isStreamer = ollamaBot.isStreamerAccount(event.username, event.badges)
+
+                if (!isBot && !isStreamer) {
                     ollamaBot.handleChatMessage(event)
                 }
             } else if (event.type == "poll" || event.type == "poll_ended") {
@@ -544,6 +555,8 @@ class RelayController(private val context: Context) {
                             viewers = ls.get("viewer_count")?.asInt ?: 0
                         }
 
+                        val oldKick = _kickState.value
+                        val hasChanged = oldKick?.viewers != viewers || oldKick?.isLive != isLive
                         val newState = KickState(
                             username = resolvedUsername,
                             chatroomId = resolvedChatroomId,
@@ -552,7 +565,9 @@ class RelayController(private val context: Context) {
                         )
                         _kickState.value = newState
                         wsServer?.broadcastEvent("kick_stream_update", newState)
-                        remoteTransmitter.forwardEvent("kick_stream_update", newState)
+                        if (hasChanged) {
+                            remoteTransmitter.forwardEvent("kick_stream_update", newState)
+                        }
                     }
                 }
             } catch (e: Exception) {}
@@ -588,6 +603,8 @@ class RelayController(private val context: Context) {
 
                         val liveState = if (isLive) "live" else if (isUpcoming) "upcoming" else "offline"
 
+                        val oldYt = _streamState.value
+                        val hasChanged = oldYt.viewers != viewers || oldYt.liveState != liveState || oldYt.title != title
                         val newState = StreamState(
                             videoId = cleanId,
                             title = title,
@@ -598,7 +615,9 @@ class RelayController(private val context: Context) {
                         wsServer?.currentStreamState = newState
                         wsServer?.broadcastEvent("stream_update", newState)
                         wsServer?.broadcastEvent("stream-state-changed", newState)
-                        remoteTransmitter.forwardEvent("stream_update", newState)
+                        if (hasChanged) {
+                            remoteTransmitter.forwardEvent("stream_update", newState)
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -677,7 +696,7 @@ class RelayController(private val context: Context) {
                 if (prefs.kickEnabled && prefs.kickUsername.isNotBlank()) {
                     pollKickChannelData(prefs.kickUsername)
                 }
-                delay(20000)
+                delay(45000)
             }
         }
         ytPollJob = scope.launch(Dispatchers.IO) {
@@ -694,7 +713,7 @@ class RelayController(private val context: Context) {
                         pollYouTubeChannelForLive(handleToTry)
                     }
                 }
-                delay(20000)
+                delay(45000)
             }
         }
     }

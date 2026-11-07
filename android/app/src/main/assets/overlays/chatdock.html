@@ -78,13 +78,14 @@
 
     /* Stream Info Header */
     #stream-header {
-      background-color: var(--bg-card);
-      padding: 6px 10px;
-      font-size: 12px;
-      line-height: 1.3;
+      background-color: #121214;
+      padding: 7px 12px;
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.4;
       min-height: 28px;
       box-sizing: border-box;
-      border-bottom: 1px solid var(--border);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
       font-weight: 500;
       white-space: nowrap;
       text-overflow: ellipsis;
@@ -701,6 +702,29 @@
 
     let activeCloudRoom = null;
 
+    async function fetchRecentCloudHistory(room) {
+      try {
+        const res = await fetch(`https://ntfy.sh/${encodeURIComponent(room)}/json?poll=1&since=1h`);
+        if (!res.ok) return;
+        const text = await res.text();
+        const lines = text.trim().split('\n');
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const raw = JSON.parse(line);
+            if (raw.event === 'message' && raw.message) {
+              const payload = JSON.parse(raw.message);
+              handleWebSocketMessage(payload);
+            } else if (raw.event && raw.data) {
+              handleWebSocketMessage(raw);
+            }
+          } catch (e) {}
+        }
+      } catch (err) {
+        console.warn('[CloudDock] History fetch error:', err);
+      }
+    }
+
     function connectCloudRoom(room) {
       activeCloudRoom = room;
       statusText.innerText = 'Connecting Cloud...';
@@ -710,6 +734,8 @@
       // Query ?since=5m so ntfy immediately delivers recent stream update & viewer counts on connect!
       const cloudWsUrl = `wss://ntfy.sh/${encodeURIComponent(room)}/ws?since=5m`;
       ws = new WebSocket(cloudWsUrl);
+
+      fetchRecentCloudHistory(room);
 
       ws.onopen = () => {
         statusDot.className = 'badge-indicator connected';

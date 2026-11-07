@@ -48,17 +48,17 @@
 
     /* Connection status bar */
     #status-bar {
-      background-color: #0f0f11;
-      padding: 6px 10px;
+      background-color: #121214;
+      padding: 8px 12px;
       font-size: 11px;
-      border-bottom: 1px solid var(--border);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
       display: flex;
       justify-content: space-between;
       align-items: center;
       color: var(--text-muted);
       box-sizing: border-box;
       flex-shrink: 0;
-      min-height: 28px;
+      min-height: 32px;
     }
 
     .badge-indicator {
@@ -77,10 +77,10 @@
       min-height: 0;
       box-sizing: border-box;
       overflow-y: auto;
-      padding: 8px 10px;
+      padding: 10px 12px;
       display: flex;
       flex-direction: column;
-      gap: 6px;
+      gap: 8px;
     }
 
     /* Alert Card Design */
@@ -255,10 +255,38 @@
       }
     }
 
+    async function fetchRecentCloudHistory(room) {
+      try {
+        const res = await fetch(`https://ntfy.sh/${encodeURIComponent(room)}/json?poll=1&since=1h`);
+        if (!res.ok) return;
+        const text = await res.text();
+        const lines = text.trim().split('\n');
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const raw = JSON.parse(line);
+            let payload = null;
+            if (raw.event === 'message' && raw.message) {
+              payload = JSON.parse(raw.message);
+            } else if (raw.event && raw.data) {
+              payload = raw;
+            }
+            if (payload && (payload.event === 'alert' || payload.event === 'subscription')) {
+              appendAlert(payload.data);
+            }
+          } catch (e) {}
+        }
+      } catch (err) {
+        console.warn('[CloudAlertDock] History fetch error:', err);
+      }
+    }
+
     function connectCloudRoom(room) {
       statusText.innerText = 'Connecting Cloud...';
       const cloudWsUrl = `wss://ntfy.sh/${encodeURIComponent(room)}/ws?since=15m`;
       ws = new WebSocket(cloudWsUrl);
+
+      fetchRecentCloudHistory(room);
 
       ws.onopen = () => {
         statusDot.className = 'badge-indicator connected';
