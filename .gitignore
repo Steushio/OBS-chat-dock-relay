@@ -3,6 +3,32 @@ node_modules/
 
 # Build output
 dist/
+*.apk
+*.aab
+
+# Binary downloads & tools
+*.exe
+*.dmg
+*.zip
+*.tar.gz
+
+# Test artifacts, logs & screenshots
+test_*.png
+test_*.jpg
+screen_*.png
+screen_*.jpg
+screenshot_*.png
+*.log
+
+# Kotlin / Android compiler cache
+.kotlin/
+android/.kotlin/
+*.iml
+.gradle/
+local.properties
+/captures
+.externalNativeBuild
+.cxx
 
 # OS files
 .DS_Store
