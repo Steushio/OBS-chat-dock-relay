@@ -20,9 +20,16 @@ import com.obs.chat.relay.ui.theme.*
 fun DocksScreen() {
     val controller = remember { OBSChatRelayApp.instance.controller }
     val port = controller.prefs.httpPort
+    val isRunning by controller.isServerRunning.collectAsState()
 
     var selectedSubTab by remember { mutableIntStateOf(0) }
     var refreshKey by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(Unit) {
+        if (!isRunning) {
+            controller.startRelayService()
+        }
+    }
 
     val urls = listOf(
         "http://127.0.0.1:$port/chatdock.html",
