@@ -22,6 +22,14 @@
       padding: 0;
     }
 
+    html, body {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
     body {
       background-color: var(--bg-dark);
       color: var(--text-main);
@@ -29,7 +37,6 @@
       font-size: 11px;
       line-height: 1.5;
       overflow: hidden;
-      height: 100vh;
       display: flex;
       flex-direction: column;
     }
@@ -44,7 +51,9 @@
       align-items: center;
       color: var(--text-muted);
       font-weight: bold;
+      box-sizing: border-box;
       flex-shrink: 0;
+      min-height: 28px;
     }
 
     .badge-indicator {
@@ -60,8 +69,10 @@
     /* Console logs view */
     #log-container {
       flex: 1;
+      min-height: 0;
+      box-sizing: border-box;
       background-color: var(--bg-log);
-      padding: 8px;
+      padding: 8px 10px;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
@@ -132,7 +143,61 @@
     let ws = null;
     let maxLogs = 100;
 
+    function connectCloudRoom(room) {
+      statusText.innerText = 'Connecting Cloud...';
+      const cloudWsUrl = `wss://ntfy.sh/${encodeURIComponent(room)}/ws?since=15m`;
+      ws = new WebSocket(cloudWsUrl);
+
+      ws.onopen = () => {
+        statusDot.className = 'badge-indicator connected';
+        statusText.innerText = 'Cloud: ' + room;
+        logLocal('Cloud Room connected: ' + room);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const raw = JSON.parse(event.data);
+          let payload = null;
+          if (raw.event === 'message' && raw.message) {
+            payload = JSON.parse(raw.message);
+          } else if (raw.event && raw.data) {
+            payload = raw;
+          }
+          if (payload) {
+            if (payload.event === 'log') {
+              appendLog(payload.data);
+            } else if (payload.event === 'chat') {
+              logLocal(`[Chat] ${payload.data.username || 'User'}: ${payload.data.message || ''}`, 'info');
+            } else if (payload.event === 'alert' || payload.event === 'subscription') {
+              logLocal(`[Alert] ${payload.data.type || 'Event'}: ${payload.data.username || ''} ${payload.data.amount || payload.data.message || ''}`, 'warning');
+            }
+          }
+        } catch (e) {
+          console.warn('[CloudEventDock] Parse error:', e);
+        }
+      };
+
+      ws.onclose = () => {
+        statusDot.className = 'badge-indicator disconnected';
+        statusText.innerText = 'Reconnecting Cloud...';
+        setTimeout(() => connectCloudRoom(room), 3000);
+      };
+
+      ws.onerror = (err) => {
+        console.error('[CloudEventDock] Error:', err);
+        ws.close();
+      };
+    }
+
     async function connect() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const cloudRoom = urlParams.get('room') || (window.location.hash ? window.location.hash.replace('#', '') : null);
+
+      if (cloudRoom) {
+        connectCloudRoom(cloudRoom);
+        return;
+      }
+
       try {
         statusText.innerText = 'Connecting...';
         const response = await fetch('/status');

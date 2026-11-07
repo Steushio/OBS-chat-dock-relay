@@ -202,14 +202,8 @@ fun RemoteSharingScreen() {
 
                         Button(
                             onClick = {
-                                scope.launch {
-                                    transmitter.forwardEvent("chat", mapOf(
-                                        "platform" to "youtube",
-                                        "username" to "System Test",
-                                        "message" to "🎉 Cloud Room Connected! Streaming over 5G data."
-                                    ))
-                                    Toast.makeText(context, "Sent test to Cloud Room: $effectiveRoom", Toast.LENGTH_SHORT).show()
-                                }
+                                controller.sendTestChat()
+                                Toast.makeText(context, "💬 Sent test chat to OBS & Mobile Dock!", Toast.LENGTH_SHORT).show()
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = KickGreen, contentColor = Color.Black),
                             modifier = Modifier
@@ -222,6 +216,26 @@ fun RemoteSharingScreen() {
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Send Test Chat", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
                         }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedButton(
+                        onClick = {
+                            controller.sendTestAlert()
+                            Toast.makeText(context, "🔔 Sent test Super Chat alert to OBS & Mobile Dock!", Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentOrange),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, AccentOrange.copy(alpha = 0.6f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(40.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                    ) {
+                        Icon(Icons.Default.Notifications, contentDescription = null, modifier = Modifier.size(16.dp), tint = AccentOrange)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Send Test Alert ($5.00 Super Chat)", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = AccentOrange)
                     }
                 }
             }

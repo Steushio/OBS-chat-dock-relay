@@ -194,6 +194,31 @@ class RelayController(private val context: Context) {
         logSystem("🎉 [YouTube Studio] New subscriber: $username", "success")
     }
 
+    fun sendTestChat(messageText: String = "🎉 Cloud Room Connected! Streaming over 5G data.") {
+        val testChat = ChatMessage(
+            id = "test_${System.currentTimeMillis()}",
+            platform = "youtube",
+            type = "chat",
+            username = "System Test",
+            message = messageText,
+            timestamp = System.currentTimeMillis()
+        )
+        handleIncomingChatEvent(testChat)
+    }
+
+    fun sendTestAlert() {
+        val testAlert = ChatMessage(
+            id = "test_alert_${System.currentTimeMillis()}",
+            platform = "youtube",
+            type = "superchat",
+            username = "SuperFan",
+            amount = "$5.00",
+            message = "Keep up the awesome streaming! 🚀",
+            timestamp = System.currentTimeMillis()
+        )
+        handleIncomingChatEvent(testAlert)
+    }
+
     fun refreshIp() {
         _localIp.value = NetworkUtils.getLocalIpAddress(context)
     }
@@ -216,6 +241,8 @@ class RelayController(private val context: Context) {
                     scope.launch { _connectedClientsCount.value = count }
                 }
             ).apply {
+                getRecentChats = { _recentChats.value }
+                getRecentAlerts = { _recentAlerts.value }
                 lowResourceMode = prefs.lowResourceMode
                 clearOldChat = prefs.clearOldChat
                 clearOldChatLimit = prefs.clearOldChatLimit

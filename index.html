@@ -24,6 +24,14 @@
       padding: 0;
     }
 
+    html, body {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
     body {
       background-color: var(--bg-dark);
       color: var(--text-main);
@@ -31,7 +39,6 @@
       font-size: 13px;
       line-height: 1.4;
       overflow: hidden;
-      height: 100vh;
       display: flex;
       flex-direction: column;
     }
@@ -49,6 +56,8 @@
       align-items: center;
       color: var(--text-muted);
       box-sizing: border-box;
+      flex-shrink: 0;
+      min-height: 28px;
     }
 
     .badge-indicator {
@@ -65,10 +74,10 @@
     /* Stream Info Header */
     #stream-header {
       background-color: var(--bg-card);
-      padding: 7px 10px;
+      padding: 6px 10px;
       font-size: 12px;
-      line-height: 1.4;
-      min-height: 32px;
+      line-height: 1.3;
+      min-height: 28px;
       box-sizing: border-box;
       border-bottom: 1px solid var(--border);
       font-weight: 500;
@@ -77,13 +86,16 @@
       overflow: hidden;
       display: flex;
       align-items: center;
+      flex-shrink: 0;
     }
 
     /* Messages container */
     #messages-container {
       flex: 1;
+      min-height: 0;
+      box-sizing: border-box;
       overflow-y: auto;
-      padding: 6px;
+      padding: 6px 8px;
       display: flex;
       flex-direction: column;
       gap: 4px;
@@ -693,8 +705,8 @@
       const connInfo = document.getElementById('connection-info');
       if (connInfo) connInfo.innerText = `Cloud Room: ${room}`;
 
-      // Query ?since=1h so ntfy immediately delivers the latest stream update & viewer counts on connect!
-      const cloudWsUrl = `wss://ntfy.sh/${encodeURIComponent(room)}/ws?since=1h`;
+      // Query ?since=5m so ntfy immediately delivers recent stream update & viewer counts on connect!
+      const cloudWsUrl = `wss://ntfy.sh/${encodeURIComponent(room)}/ws?since=5m`;
       ws = new WebSocket(cloudWsUrl);
 
       ws.onopen = () => {
@@ -828,6 +840,12 @@
         }
         if (data.kickStream) {
           updateKickViewersUI(data.kickStream);
+        }
+
+        if (Array.isArray(data.recentChats)) {
+          for (const item of data.recentChats) {
+            queueMessage(item);
+          }
         }
       }
 
@@ -1007,7 +1025,9 @@
     }
 
     function createMessageNode(item) {
-      if (item.type === 'chat') {
+      if (!item) return null;
+      const isChat = !item.type || item.type === 'chat' || item.type === 'message';
+      if (isChat) {
         const row = document.createElement('div');
         row.className = 'message-row';
         row.setAttribute('data-timestamp', Date.now());

@@ -29,6 +29,8 @@ class RelayWebSocketServer(
     var clearOldChatTimeout: Int = 120
     var chatSoundEnabled: Boolean = true
     var alertSoundEnabled: Boolean = true
+    var getRecentChats: (() -> List<ChatMessage>)? = null
+    var getRecentAlerts: (() -> List<ChatMessage>)? = null
 
     private val recentLogs = Collections.synchronizedList(mutableListOf<LogEntry>())
 
@@ -46,6 +48,8 @@ class RelayWebSocketServer(
             "status" to "connected",
             "stream" to currentStreamState,
             "kickStream" to currentKickState,
+            "recentChats" to (getRecentChats?.invoke() ?: emptyList()),
+            "recentAlerts" to (getRecentAlerts?.invoke() ?: emptyList()),
             "recentLogs" to synchronized(recentLogs) { recentLogs.takeLast(50) },
             "lowResourceMode" to lowResourceMode,
             "clearOldChat" to clearOldChat,
