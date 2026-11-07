@@ -177,12 +177,17 @@ OBS-chat-dock-relay/
 Stream your live chat and alerts from your Android phone over **4G/5G mobile cellular data** to your PC running OBS without ever configuring your router's port forwarding and without installing Tailscale or VPN apps!
 
 ### 1. In OBS Studio:
-- **Option A (OBS Custom Browser Dock with QR Code)**:
+- **Option A (Zero-Config Cloud Room - No PC relay app needed)**:
+  - In OBS Studio, click **Docks** ➜ **Custom Browser Docks...**
+  - Name: `Chat Dock`
+  - URL: `https://steushio.github.io/OBS-chat-dock-relay/?room=YOUR_ROOM_CODE`
+  - Works instantly worldwide over MQTT & Cloud WebSockets directly from your mobile phone with 0 software to run on PC!
+- **Option B (OBS Custom Browser Dock with QR Code)**:
   - In OBS Studio, click **Docks** ➜ **Custom Browser Docks...**
   - Name: `Mobile Connect Dock`
   - URL: `http://127.0.0.1:3000/tunnel-dock.html`
   - A dockable window opens directly inside OBS Studio showing an active public Host & Port (or secure tunnel URL) and a scannable **QR Code**!
-- **Option B (OBS Studio Lua/Python Plugin)**:
+- **Option C (OBS Studio Lua/Python Plugin)**:
   - In OBS Studio, click **Tools** ➜ **Scripts** ➜ Click **`+`**
   - Select [`obs-plugin/obs_mobile_relay.lua`](file:///c:/Users/Work/Documents/OBS-chat-dock-relay/obs-plugin/obs_mobile_relay.lua) (or run [`obs-plugin/install_obs_plugin.bat`](file:///c:/Users/Work/Documents/OBS-chat-dock-relay/obs-plugin/install_obs_plugin.bat) to install it automatically).
   - Directly inside the OBS Scripts window, you can view the active mobile connect URL, start/stop the tunnel, and copy the connection string.
