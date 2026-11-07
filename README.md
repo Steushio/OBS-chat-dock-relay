@@ -12,7 +12,7 @@
   <a href="https://discord.com/invite/UBsenpp"><img src="https://img.shields.io/badge/Discord-Join%20Server-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
   <a href="https://www.youtube.com/@steushio"><img src="https://img.shields.io/badge/YouTube-Subscribe-FF0000?logo=youtube&logoColor=white" alt="YouTube"></a>
   <a href="https://steushio.github.io/steushio-stream-support/coffee.html"><img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-☕%20Donate-FFDD00?logo=buymeacoffee&logoColor=black" alt="Donate"></a>
-  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android-blue" alt="Platform">
+  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20%7C%20Linux%20%7C%20Android-blue" alt="Platform">
   <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
 </p>
 
