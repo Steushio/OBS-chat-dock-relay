@@ -98,6 +98,10 @@ class PreferencesManager(context: Context) {
         get() = prefs.getBoolean(KEY_KEEP_SCREEN_AWAKE, true)
         set(value) = prefs.edit().putBoolean(KEY_KEEP_SCREEN_AWAKE, value).apply()
 
+    var backgroundModeEnabled: Boolean
+        get() = prefs.getBoolean(KEY_BACKGROUND_MODE, true)
+        set(value) = prefs.edit().putBoolean(KEY_BACKGROUND_MODE, value).apply()
+
     // AI Provider Selection: "nvidia" | "opencode_zen" | "gemini" | "openai" | "ollama"
     var aiProvider: String
         get() = prefs.getString(KEY_AI_PROVIDER, "nvidia") ?: "nvidia"
@@ -250,6 +254,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_ALERT_SOUND = "alert_sound"
         private const val KEY_FLOATING_OVERLAY = "floating_overlay"
         private const val KEY_KEEP_SCREEN_AWAKE = "keep_screen_awake"
+        private const val KEY_BACKGROUND_MODE = "background_mode_enabled"
 
         // Multi-Provider AI
         private const val KEY_AI_PROVIDER = "ai_provider"

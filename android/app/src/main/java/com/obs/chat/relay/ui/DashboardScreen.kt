@@ -67,6 +67,7 @@ fun DashboardScreen() {
     var kickInput by remember { mutableStateOf(controller.prefs.kickUsername) }
     var ytEnabled by remember { mutableStateOf(controller.prefs.youtubeEnabled) }
     var kickEnabled by remember { mutableStateOf(controller.prefs.kickEnabled) }
+    var isBgMode by remember { mutableStateOf(controller.prefs.backgroundModeEnabled) }
 
     // Keep inputs synchronized if updated from background/account sync
     LaunchedEffect(controller.prefs.youtubeVideoId) {
@@ -243,6 +244,99 @@ fun DashboardScreen() {
 
                     Spacer(modifier = Modifier.height(12.dp))
 
+                    // Background Mode Toggle Card
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = BgDark.copy(alpha = 0.6f)),
+                        shape = RoundedCornerShape(10.dp),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (isBgMode) KickGreen.copy(alpha = 0.4f) else BorderDark
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Layers,
+                                    contentDescription = null,
+                                    tint = if (isBgMode) KickGreen else TextMuted,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = "Background Mode",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            color = TextMain
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = if (isBgMode) KickGreen.copy(alpha = 0.2f) else CardDark
+                                        ) {
+                                            Text(
+                                                text = if (isBgMode) "ACTIVE" else "FOREGROUND ONLY",
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isBgMode) KickGreen else TextMuted,
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = if (isBgMode)
+                                            "Relay, chats & AI bot stay active while using other apps"
+                                        else
+                                            "Relay only streams while this app is open on screen",
+                                        fontSize = 11.sp,
+                                        color = TextMuted,
+                                        lineHeight = 14.sp
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Switch(
+                                checked = isBgMode,
+                                onCheckedChange = { enabled ->
+                                    isBgMode = enabled
+                                    controller.prefs.backgroundModeEnabled = enabled
+                                    if (enabled) {
+                                        if (isRunning) {
+                                            RelayForegroundService.start(context)
+                                        }
+                                        if (!com.obs.chat.relay.util.BatteryOptimizationHelper.isIgnoringBatteryOptimizations(context)) {
+                                            com.obs.chat.relay.util.BatteryOptimizationHelper.requestIgnoreBatteryOptimizations(context)
+                                        }
+                                        Toast.makeText(context, "Background Mode ON: Relay keeps running when minimized", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        RelayForegroundService.stop(context)
+                                        Toast.makeText(context, "Foreground Only: Relay will pause when app is closed", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.Black,
+                                    checkedTrackColor = KickGreen,
+                                    uncheckedThumbColor = TextMuted,
+                                    uncheckedTrackColor = BgDark
+                                )
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
                     // Start/Stop Primary Button & QR Scanner
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -252,8 +346,13 @@ fun DashboardScreen() {
                             onClick = {
                                 if (isRunning) {
                                     RelayForegroundService.stop(context)
+                                    controller.stopRelayService()
                                 } else {
-                                    RelayForegroundService.start(context)
+                                    if (isBgMode) {
+                                        RelayForegroundService.start(context)
+                                    } else {
+                                        controller.startRelayService()
+                                    }
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(

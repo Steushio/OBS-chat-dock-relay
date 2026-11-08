@@ -209,6 +209,14 @@ class YouTubeBotChatSender(
         }
     }
 
+    fun resumeTimers() {
+        mainHandler.post {
+            try {
+                webView?.resumeTimers()
+            } catch (e: Exception) {}
+        }
+    }
+
     fun destroy() {
         mainHandler.post {
             try {

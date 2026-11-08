@@ -103,6 +103,13 @@ class RelayController(private val context: Context) {
     private val _isServerRunning = MutableStateFlow(false)
     val isServerRunning: StateFlow<Boolean> = _isServerRunning.asStateFlow()
 
+    private val _isBackgroundServiceRunning = MutableStateFlow(false)
+    val isBackgroundServiceRunning: StateFlow<Boolean> = _isBackgroundServiceRunning.asStateFlow()
+
+    fun setBackgroundServiceRunning(running: Boolean) {
+        _isBackgroundServiceRunning.value = running
+    }
+
     private val _connectedClientsCount = MutableStateFlow(0)
     val connectedClientsCount: StateFlow<Int> = _connectedClientsCount.asStateFlow()
 
@@ -385,6 +392,11 @@ class RelayController(private val context: Context) {
         _isServerRunning.value = false
         _connectedClientsCount.value = 0
         logSystem("OBS Chat Relay Services stopped", "info")
+    }
+
+    fun resumeAllWebViews() {
+        ytCapture?.resumeTimers()
+        ytBotSender.resumeTimers()
     }
 
     fun updateYouTubeCapture(videoIdOrUrl: String) {

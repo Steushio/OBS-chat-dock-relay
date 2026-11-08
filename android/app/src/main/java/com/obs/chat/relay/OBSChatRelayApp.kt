@@ -25,7 +25,11 @@ class OBSChatRelayApp : Application() {
         createNotificationChannel()
 
         if (controller.prefs.autoStartMonitoring) {
-            controller.startRelayService()
+            if (controller.prefs.backgroundModeEnabled) {
+                com.obs.chat.relay.service.RelayForegroundService.start(this)
+            } else {
+                controller.startRelayService()
+            }
         }
     }
 

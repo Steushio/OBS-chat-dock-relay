@@ -43,6 +43,7 @@ fun SettingsScreen() {
     var alertSound by remember { mutableStateOf(prefs.alertSoundEnabled) }
     var keepScreenAwake by remember { mutableStateOf(prefs.keepScreenAwake) }
     var autoStart by remember { mutableStateOf(prefs.autoStartMonitoring) }
+    var bgMode by remember { mutableStateOf(prefs.backgroundModeEnabled) }
     var lowResource by remember { mutableStateOf(prefs.lowResourceMode) }
     var clearOldChat by remember { mutableStateOf(prefs.clearOldChat) }
 

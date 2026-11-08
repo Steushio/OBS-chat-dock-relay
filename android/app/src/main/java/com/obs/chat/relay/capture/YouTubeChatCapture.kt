@@ -109,6 +109,14 @@ class YouTubeChatCapture(
         }
     }
 
+    fun resumeTimers() {
+        mainHandler.post {
+            try {
+                webView?.resumeTimers()
+            } catch (e: Exception) {}
+        }
+    }
+
     fun stopCapture() {
         isCapturing = false
         currentVideoId = null
