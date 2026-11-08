@@ -180,7 +180,7 @@ class RelayController(private val context: Context) {
 
         val resolvedTitle = if (title.isNotBlank()) title else _streamState.value.title ?: "Active Studio Livestream"
         val resolvedState = if (liveState.isNotBlank()) liveState else "live"
-        val resolvedViewers = if (viewers > 0) viewers else _streamState.value.viewers
+        val resolvedViewers = if (viewers >= 0) viewers else _streamState.value.viewers
 
         val hasChanged = cleanId != oldId || liveState != oldState || resolvedViewers != _streamState.value.viewers
         _streamState.value = StreamState(
@@ -555,6 +555,20 @@ class RelayController(private val context: Context) {
         }
     }
 
+    fun forceRefreshStreamDetection() {
+        scope.launch(Dispatchers.IO) {
+            logSystem("🛰️ Refreshing stream search across channel and YouTube Studio...", "info")
+            pollYouTubeChannelForLive("")
+            val currentVid = prefs.youtubeVideoId.trim()
+            if (currentVid.isNotBlank()) {
+                pollYouTubeStreamData(currentVid)
+            }
+            if (prefs.kickUsername.isNotBlank()) {
+                pollKickChannelData(prefs.kickUsername)
+            }
+        }
+    }
+
     fun pollKickChannelData(username: String) {
         val cleanUser = username.trim()
         if (cleanUser.isEmpty()) return
@@ -607,25 +621,28 @@ class RelayController(private val context: Context) {
             try {
                 val req = Request.Builder()
                     .url("https://www.youtube.com/watch?v=$cleanId")
-                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
                     .header("Accept-Language", "en-US,en;q=0.9")
                     .build()
                 httpClient.newCall(req).execute().use { resp ->
                     if (resp.isSuccessful) {
                         val body = resp.body?.string() ?: ""
-                        val isLive = body.contains("VIEW_COUNT_VIDEO_TYPE_LIVE") || body.contains("\"isLive\":true")
-                        val isUpcoming = body.contains("\"status\":\"UPCOMING\"") || body.contains("\"upcomingEventData\"")
+                        val isLive = body.contains("VIEW_COUNT_VIDEO_TYPE_LIVE") || body.contains(""""isLive":true""") || body.contains(""""style":"LIVE"""")
+                        val isUpcoming = body.contains(""""status":"UPCOMING"""") || body.contains(""""upcomingEventData"""")
                         var viewers = 0
                         val vPatterns = listOf(
-                            Pattern.compile("\"viewCount\":\\{\"runs\":\\[\\{\"text\":\"([0-9,]+)\"\\},\\{\"text\":\"\\s*watching"),
-                            Pattern.compile("\"originalViewCount\":\"([0-9,]+)\""),
-                            Pattern.compile("\\{\"text\":\"([0-9,]+)\"\\},\\{\"text\":\"\\s*watching\\s*now\""),
-                            Pattern.compile("\"viewCount\":\\{\"runs\":\\[\\{\"text\":\"([0-9,]+)\\s+watching"),
-                            Pattern.compile("\"content\":\"([0-9,]+)\\s+watching\""),
-                            Pattern.compile("\"accessibilityLabel\":\"([0-9,]+)\\s+watching\""),
-                            Pattern.compile("([0-9,]+)\\s+watching\\s+now"),
-                            Pattern.compile("([0-9,]+)\\s+watching"),
-                            Pattern.compile("\"concurrentViewers\":\"?([0-9]+)\"?")
+                            Pattern.compile(""""viewCountViewModel":\{"viewCount":"([0-9,]+)""""),
+                            Pattern.compile(""""viewCountNumber":"([0-9,]+)""""),
+                            Pattern.compile(""""unlabeledViewCountValue":\{"simpleText":"([0-9,]+)""""),
+                            Pattern.compile(""""originalViewCount":"([0-9,]+)""""),
+                            Pattern.compile(""""extraShortViewCount":\{"simpleText":"([0-9,]+)""""),
+                            Pattern.compile(""""viewCount":\{"runs":\[\{"text":"([0-9,]+)"\},\{"text":"\s*watching""""),
+                            Pattern.compile(""""viewCount":\{"runs":\[\{"text":"([0-9,]+)\s*(?:watching|waiting)""""),
+                            Pattern.compile(""""runs":\[\{"text":"([0-9,]+)\s*(?:watching|waiting)""""),
+                            Pattern.compile(""""content":"([0-9,]+)\s*(?:watching|waiting)""""),
+                            Pattern.compile(""""accessibilityLabel":"([0-9,]+)\s*(?:watching|waiting)""""),
+                            Pattern.compile("""([0-9,]+)\s+(?:watching|waiting)"""),
+                            Pattern.compile(""""concurrentViewers":"?([0-9]+)"?""")
                         )
                         for (p in vPatterns) {
                             val m = p.matcher(body)
@@ -646,8 +663,6 @@ class RelayController(private val context: Context) {
 
                         val liveState = if (isLive) "live" else if (isUpcoming) "upcoming" else "offline"
 
-                        val oldYt = _streamState.value
-                        val hasChanged = oldYt.viewers != viewers || oldYt.liveState != liveState || oldYt.title != title
                         val newState = StreamState(
                             videoId = cleanId,
                             title = title,
@@ -659,6 +674,11 @@ class RelayController(private val context: Context) {
                         wsServer?.broadcastEvent("stream_update", newState)
                         wsServer?.broadcastEvent("stream-state-changed", newState)
                         remoteTransmitter.forwardEvent("stream_update", newState)
+
+                        // If currently offline, search channel for new live stream
+                        if (liveState == "offline") {
+                            pollYouTubeChannelForLive("")
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -667,58 +687,120 @@ class RelayController(private val context: Context) {
         }
     }
 
-    fun pollYouTubeChannelForLive(channelOrHandle: String) {
-        var clean = channelOrHandle.trim().removePrefix("@")
-        val isInvalid = clean.isBlank() ||
-                clean.equals("YouTube Channel", true) ||
-                clean.equals("YouTube Streamer", true) ||
-                clean.contains("Creator Studio", true) ||
-                clean.contains("YouTube Studio", true)
-
-        if (isInvalid) {
-            // Fallback to Kick username if available, as streamers often share handles across platforms
-            val kickUser = prefs.kickUsername.trim()
-            if (kickUser.isNotBlank() && !kickUser.equals("Kick Streamer", true)) {
-                clean = kickUser
-            } else {
-                return
-            }
-        }
+    fun pollYouTubeChannelForLive(channelOrHandle: String = "") {
+        val invalidNames = setOf(
+            "youtube", "youtube channel", "youtube streamer", "creator studio", "youtube studio", "kick streamer", "streamer", ""
+        )
+        val candidates = listOf(
+            channelOrHandle.trim().removePrefix("@"),
+            sessionManager.ytBroadcasterName.value.trim().removePrefix("@"),
+            prefs.cloudRoomCode.trim().removePrefix("@"),
+            prefs.kickUsername.trim().removePrefix("@")
+        )
+        val clean = candidates.firstOrNull { it.isNotBlank() && !invalidNames.contains(it.lowercase()) } ?: return
 
         scope.launch(Dispatchers.IO) {
             try {
-                val url = "https://www.youtube.com/@$clean/live"
+                // 1. Primary: Check https://www.youtube.com/@handle/live
+                val liveUrl = "https://www.youtube.com/@$clean/live"
                 val req = Request.Builder()
-                    .url(url)
-                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .url(liveUrl)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
                     .header("Accept-Language", "en-US,en;q=0.9")
                     .build()
                 httpClient.newCall(req).execute().use { resp ->
                     if (resp.isSuccessful) {
                         val body = resp.body?.string() ?: ""
-                        val vidPattern = Pattern.compile("\"videoId\":\"([a-zA-Z0-9_-]{11})\"")
-                        val matcher = vidPattern.matcher(body)
-                        if (matcher.find()) {
-                            val vid = matcher.group(1)
-                            if (!vid.isNullOrEmpty()) {
-                                val isLive = body.contains("VIEW_COUNT_VIDEO_TYPE_LIVE") || body.contains("\"isLive\":true")
-                                val isUpcoming = body.contains("\"status\":\"UPCOMING\"") || body.contains("\"upcomingEventData\"")
-                                val viewersPattern = Pattern.compile("\"viewCount\":\\{\"runs\":\\[\\{\"text\":\"([0-9,]+)\\s+watching")
-                                val viewersMatcher = viewersPattern.matcher(body)
-                                val viewers = if (viewersMatcher.find()) {
-                                    viewersMatcher.group(1)?.replace(",", "")?.toIntOrNull() ?: 0
-                                } else 0
 
-                                val titlePattern = Pattern.compile("<title>(.*?)(?: - YouTube)?</title>")
-                                val titleMatcher = titlePattern.matcher(body)
-                                val title = if (titleMatcher.find()) {
-                                    titleMatcher.group(1)?.replace(" - YouTube", "")?.trim() ?: "YouTube Live"
-                                } else "Active Livestream"
+                        // Extract canonical or og:url video ID first (most accurate for live redirect)
+                        var vid: String? = null
+                        val canonMatcher = Pattern.compile("<link\\s+rel=\"canonical\"\\s+href=\"https://www\\.youtube\\.com/watch\\?v=([a-zA-Z0-9_-]{11})\"").matcher(body)
+                        if (canonMatcher.find()) {
+                            vid = canonMatcher.group(1)
+                        } else {
+                            val ogMatcher = Pattern.compile("<meta\\s+property=\"og:url\"\\s+content=\"https://www\\.youtube\\.com/watch\\?v=([a-zA-Z0-9_-]{11})\"").matcher(body)
+                            if (ogMatcher.find()) {
+                                vid = ogMatcher.group(1)
+                            } else {
+                                val vidPattern = Pattern.compile("\"videoId\":\"([a-zA-Z0-9_-]{11})\"")
+                                val matcher = vidPattern.matcher(body)
+                                if (matcher.find()) {
+                                    vid = matcher.group(1)
+                                }
+                            }
+                        }
 
-                                val liveState = if (isLive) "live" else if (isUpcoming) "upcoming" else "offline"
+                        val isLive = body.contains("VIEW_COUNT_VIDEO_TYPE_LIVE") ||
+                                body.contains("\"isLive\":true") ||
+                                body.contains("\"style\":\"LIVE\"") ||
+                                body.contains("BADGE_STYLE_TYPE_LIVE_NOW")
+                        val isUpcoming = body.contains("\"status\":\"UPCOMING\"") || body.contains("\"upcomingEventData\"")
 
-                                scope.launch(Dispatchers.Main) {
-                                    onStudioStreamDetected(vid, title, liveState, viewers)
+                        if (!vid.isNullOrEmpty() && (isLive || isUpcoming)) {
+                            var viewers = 0
+                            val vPatterns = listOf(
+                                Pattern.compile(""""viewCountViewModel":\{"viewCount":"([0-9,]+)""""),
+                                Pattern.compile(""""viewCountNumber":"([0-9,]+)""""),
+                                Pattern.compile(""""unlabeledViewCountValue":\{"simpleText":"([0-9,]+)""""),
+                                Pattern.compile(""""originalViewCount":"([0-9,]+)""""),
+                                Pattern.compile(""""extraShortViewCount":\{"simpleText":"([0-9,]+)""""),
+                                Pattern.compile(""""viewCount":\{"runs":\[\{"text":"([0-9,]+)"\},\{"text":"\s*watching""""),
+                                Pattern.compile(""""viewCount":\{"runs":\[\{"text":"([0-9,]+)\s*(?:watching|waiting)""""),
+                                Pattern.compile(""""runs":\[\{"text":"([0-9,]+)\s*(?:watching|waiting)""""),
+                                Pattern.compile("""([0-9,]+)\s+(?:watching|waiting)"""),
+                                Pattern.compile(""""concurrentViewers":"?([0-9]+)"?""")
+                            )
+                            for (p in vPatterns) {
+                                val m = p.matcher(body)
+                                if (m.find()) {
+                                    val parsed = m.group(1)?.replace(",", "")?.toIntOrNull()
+                                    if (parsed != null && parsed >= 0) {
+                                        viewers = parsed
+                                        break
+                                    }
+                                }
+                            }
+
+                            val titlePattern = Pattern.compile("<title>(.*?)(?: - YouTube)?</title>")
+                            val titleMatcher = titlePattern.matcher(body)
+                            val title = if (titleMatcher.find()) {
+                                titleMatcher.group(1)?.replace(" - YouTube", "")?.trim() ?: "YouTube Live"
+                            } else "Active Livestream"
+
+                            val liveState = if (isLive) "live" else "upcoming"
+
+                            scope.launch(Dispatchers.Main) {
+                                if (vid != prefs.youtubeVideoId) {
+                                    logSystem("🛰️ [YouTube Auto-Detect] Found new live stream for @$clean: $vid (\"$title\")", "success")
+                                    updateYouTubeCapture(vid)
+                                }
+                                onStudioStreamDetected(vid, title, liveState, viewers)
+                            }
+                            return@launch
+                        }
+                    }
+                }
+
+                // 2. Secondary check: https://www.youtube.com/@handle/streams
+                val streamsUrl = "https://www.youtube.com/@$clean/streams"
+                val streamsReq = Request.Builder()
+                    .url(streamsUrl)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                    .header("Accept-Language", "en-US,en;q=0.9")
+                    .build()
+                httpClient.newCall(streamsReq).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val body = resp.body?.string() ?: ""
+                        if (body.contains("VIEW_COUNT_VIDEO_TYPE_LIVE") || body.contains("\"style\":\"LIVE\"") || body.contains("BADGE_STYLE_TYPE_LIVE_NOW")) {
+                            val vidPattern = Pattern.compile("\"videoId\":\"([a-zA-Z0-9_-]{11})\"")
+                            val matcher = vidPattern.matcher(body)
+                            if (matcher.find()) {
+                                val vid = matcher.group(1)
+                                if (!vid.isNullOrEmpty() && vid != prefs.youtubeVideoId) {
+                                    scope.launch(Dispatchers.Main) {
+                                        logSystem("🛰️ [YouTube Streams Auto-Detect] Live stream detected in /streams: $vid", "success")
+                                        updateYouTubeCapture(vid)
+                                    }
                                 }
                             }
                         }
@@ -741,17 +823,23 @@ class RelayController(private val context: Context) {
             }
         }
         ytPollJob = scope.launch(Dispatchers.IO) {
+            var loop = 0
             while (true) {
                 if (prefs.youtubeEnabled) {
-                    if (prefs.youtubeVideoId.isNotBlank()) {
-                        pollYouTubeStreamData(prefs.youtubeVideoId)
-                    } else {
+                    loop++
+                    val currentVid = prefs.youtubeVideoId.trim()
+                    if (currentVid.isNotBlank()) {
+                        pollYouTubeStreamData(currentVid)
+                    }
+                    val isOffline = currentVid.isBlank() || _streamState.value.liveState == "offline"
+                    if (isOffline || (loop % 3 == 0)) {
+                        pollYouTubeChannelForLive("")
+                    }
+                    if (sessionManager.ytBroadcasterLoggedIn.value) {
                         scope.launch(Dispatchers.Main) {
                             initStudioMonitor()
                             ytStudioMonitor?.startMonitoring()
                         }
-                        val handleToTry = sessionManager.ytBroadcasterName.value.ifBlank { prefs.kickUsername }
-                        pollYouTubeChannelForLive(handleToTry)
                     }
                 }
                 delay(15000)

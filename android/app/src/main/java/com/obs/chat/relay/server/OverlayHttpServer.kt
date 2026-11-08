@@ -12,6 +12,7 @@ class OverlayHttpServer(
     private val onClearChatRequested: () -> Unit,
     private val onToggleClearChatRequested: () -> Boolean,
     private val onToggleLowResourceRequested: () -> Boolean,
+    private val onRefreshStreamRequested: (() -> Unit)? = null,
     private val getSettings: () -> Map<String, Any>,
     private val onLog: (String, String) -> Unit
 ) : NanoHTTPD("0.0.0.0", port) {
@@ -63,6 +64,15 @@ class OverlayHttpServer(
                     Response.Status.OK,
                     "application/json",
                     gson.toJson(mapOf("success" to true, "message" to "OBS chat docks cleared"))
+                )
+            }
+
+            "/refresh-stream" -> {
+                onRefreshStreamRequested?.invoke()
+                newFixedLengthResponse(
+                    Response.Status.OK,
+                    "application/json",
+                    gson.toJson(mapOf("success" to true, "message" to "Stream refresh triggered"))
                 )
             }
 

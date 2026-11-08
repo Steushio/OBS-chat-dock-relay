@@ -1170,10 +1170,10 @@
 
       // Prevent duplicate messages by content (2.5s for normal users, 10s for bot replies)
       const now = Date.now();
-      const rawText = (item.message || '').trim().toLowerCase();
+      const rawText = (item.message || '').trim().toLowerCase().replace(/\s+/g, ' ');
       if (rawText) {
         const u = (item.username || '').toLowerCase();
-        const isBot = u.includes('bot') || u.includes('cutie') ||
+        const isBot = (item.id && typeof item.id === 'string' && item.id.startsWith('bot_')) || u.includes('bot') || u.includes('cutie') ||
                       (Array.isArray(item.badges) && item.badges.some(b => typeof b === 'string' && (b.toLowerCase().includes('bot') || b.toLowerCase().includes('mod'))));
 
         const dedupeKey = `${u}:${rawText}`;
@@ -1359,8 +1359,24 @@
       btn.classList.add('spinning');
       checkingStream = true;
 
-      // In Cloud Room mode, query ntfy for cached messages
+      // In Cloud Room mode, send remote command to mobile app to force fresh scan and query ntfy
       if (activeCloudRoom) {
+        const cmdPayload = JSON.stringify({
+          type: 'remote_command',
+          cmd: 'refresh_stream',
+          data: {}
+        });
+        if (mqttClient && mqttClient.connected) {
+          mqttClient.publish('obs_relay_' + activeCloudRoom, cmdPayload, { qos: 1 });
+        }
+        try {
+          fetch(`https://ntfy.sh/${encodeURIComponent(activeCloudRoom)}`, {
+            method: 'POST',
+            body: cmdPayload,
+            headers: { 'Title': 'refresh_stream' }
+          }).catch(() => {});
+        } catch(e) {}
+
         try {
           const res = await fetch(`https://ntfy.sh/${encodeURIComponent(activeCloudRoom)}/json?poll=1&since=1h`);
           const text = await res.text();
