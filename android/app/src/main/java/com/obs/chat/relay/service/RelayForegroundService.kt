@@ -54,33 +54,56 @@ class RelayForegroundService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    override fun onCreate() {
-        super.onCreate()
+    private fun ensureLocks() {
         try {
-            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-            wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "OBSChatRelay::ServiceWakeLock").apply {
-                setReferenceCounted(false)
-                acquire(24 * 60 * 60 * 1000L) // 24 hours max
+            if (wakeLock == null) {
+                val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+                wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "OBSChatRelay::ServiceWakeLock").apply {
+                    setReferenceCounted(false)
+                }
+            }
+            if (wakeLock?.isHeld != true) {
+                wakeLock?.acquire(24 * 60 * 60 * 1000L) // 24 hours max
             }
         } catch (e: Exception) {}
 
         try {
-            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
-            wifiLock = wifiManager?.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "OBSChatRelay::WifiLock")?.apply {
-                setReferenceCounted(false)
-                acquire()
+            if (wifiLock == null) {
+                val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                val lockMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+                } else {
+                    @Suppress("DEPRECATION")
+                    WifiManager.WIFI_MODE_FULL_HIGH_PERF
+                }
+                wifiLock = wifiManager?.createWifiLock(lockMode, "OBSChatRelay::WifiLock")?.apply {
+                    setReferenceCounted(false)
+                }
+            }
+            if (wifiLock?.isHeld != true) {
+                wifiLock?.acquire()
             }
         } catch (e: Exception) {}
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        ensureLocks()
 
         OBSChatRelayApp.instance.controller.setBackgroundServiceRunning(true)
 
-        // Keep WebViews and sockets active in background
+        // Keep WebViews, sockets and network active in background and on lockscreen
         keepAliveJob = serviceScope.launch {
             while (isActive) {
                 try {
+                    ensureLocks()
                     OBSChatRelayApp.instance.controller.resumeAllWebViews()
+
+                    // Keep lockscreen notification updated with live viewer count & stats
+                    val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+                    notificationManager?.notify(NOTIFICATION_ID, createNotification())
                 } catch (e: Exception) {}
-                delay(8000)
+                delay(5000)
             }
         }
     }
@@ -94,6 +117,8 @@ class RelayForegroundService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+
+        ensureLocks()
 
         val controller = OBSChatRelayApp.instance.controller
         if (!controller.isServerRunning.value) {
@@ -146,10 +171,11 @@ class RelayForegroundService : Service() {
         )
 
         val stream = controller.streamState.value
+        val chatCount = controller.recentChats.value.size
         val subText = if (stream.liveState == "live") {
-            "🔴 Live: ${stream.title ?: "Active"} (${stream.viewers} viewers)"
+            "🔴 Live: ${stream.title ?: "Active"} • 👥 ${stream.viewers} viewers • 💬 $chatCount chats"
         } else {
-            "Background Relay Active • Dock: http://$ip:$port/chatdock.html"
+            "🟢 Relay Active (Lockscreen Enabled) • Docks: ${controller.connectedClientsCount.value} • http://$ip:$port/chatdock.html"
         }
 
         return NotificationCompat.Builder(this, OBSChatRelayApp.CHANNEL_ID)
@@ -159,7 +185,10 @@ class RelayForegroundService : Service() {
             .setContentIntent(pendingOpen)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", pendingStop)
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
     }
 

@@ -102,6 +102,10 @@ class PreferencesManager(context: Context) {
         get() = prefs.getBoolean(KEY_BACKGROUND_MODE, true)
         set(value) = prefs.edit().putBoolean(KEY_BACKGROUND_MODE, value).apply()
 
+    var showOnLockscreen: Boolean
+        get() = prefs.getBoolean("show_on_lockscreen", true)
+        set(value) = prefs.edit().putBoolean("show_on_lockscreen", value).apply()
+
     // AI Provider Selection: "nvidia" | "opencode_zen" | "gemini" | "openai" | "ollama"
     var aiProvider: String
         get() = prefs.getString(KEY_AI_PROVIDER, "nvidia") ?: "nvidia"

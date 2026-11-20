@@ -297,7 +297,7 @@ fun DashboardScreen() {
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
                                         text = if (isBgMode)
-                                            "Relay, chats & AI bot stay active while using other apps"
+                                            "Relay, chats & AI bot stay active in background & on lockscreen"
                                         else
                                             "Relay only streams while this app is open on screen",
                                         fontSize = 11.sp,
@@ -319,10 +319,10 @@ fun DashboardScreen() {
                                         if (!com.obs.chat.relay.util.BatteryOptimizationHelper.isIgnoringBatteryOptimizations(context)) {
                                             com.obs.chat.relay.util.BatteryOptimizationHelper.requestIgnoreBatteryOptimizations(context)
                                         }
-                                        Toast.makeText(context, "Background Mode ON: Relay keeps running when minimized", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "Background & Lockscreen Mode ON: Relay stays active when phone is locked", Toast.LENGTH_SHORT).show()
                                     } else {
                                         RelayForegroundService.stop(context)
-                                        Toast.makeText(context, "Foreground Only: Relay will pause when app is closed", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "Foreground Only: Relay will pause when phone locks", Toast.LENGTH_SHORT).show()
                                     }
                                 },
                                 colors = SwitchDefaults.colors(

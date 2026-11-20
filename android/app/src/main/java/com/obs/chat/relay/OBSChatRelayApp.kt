@@ -37,10 +37,12 @@ class OBSChatRelayApp : Application() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "OBS Chat Relay Background Service",
-                NotificationManager.IMPORTANCE_LOW
+                "OBS Chat Relay Service",
+                NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Keeps the HTTP and WebSocket servers running for OBS Docks"
+                description = "Keeps OBS chat relay, live chat capture, and AI active even on lockscreen"
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+                setShowBadge(true)
             }
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)

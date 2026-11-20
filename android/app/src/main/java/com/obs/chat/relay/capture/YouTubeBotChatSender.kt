@@ -53,6 +53,8 @@ class YouTubeBotChatSender(
                         settings.userAgentString = desktopUserAgent
                         settings.loadsImagesAutomatically = false
                         settings.mediaPlaybackRequiresUserGesture = false
+                        settings.cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
+                        layout(0, 0, 1080, 1920)
 
                         val mode = prefs.ytPostingMode
                         val profileName = if (mode == "broadcaster") "persist_youtube" else "persist_youtube_bot"
@@ -210,9 +212,17 @@ class YouTubeBotChatSender(
     }
 
     fun resumeTimers() {
+        keepAlive()
+    }
+
+    fun keepAlive() {
         mainHandler.post {
             try {
                 webView?.resumeTimers()
+                webView?.evaluateJavascript(
+                    "(function(){ try { if (document.hidden) Object.defineProperty(document, 'hidden', { get: () => false, configurable: true }); } catch(e){} })();",
+                    null
+                )
             } catch (e: Exception) {}
         }
     }

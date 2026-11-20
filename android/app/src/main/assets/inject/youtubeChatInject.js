@@ -1,5 +1,35 @@
 console.log('[OBS Chat Interceptor] Android Chat injection script loaded. Initializing observer...');
 
+// 1. LOCKSCREEN & BACKGROUND VISIBILITY SPOOFING
+// Prevents YouTube live_chat.js from pausing, throttling, or disconnecting when screen is locked
+try {
+  Object.defineProperty(document, 'hidden', { get: () => false, configurable: true });
+  Object.defineProperty(document, 'visibilityState', { get: () => 'visible', configurable: true });
+  Object.defineProperty(document, 'webkitVisibilityState', { get: () => 'visible', configurable: true });
+  document.hasFocus = function() { return true; };
+} catch (e) {}
+
+window.addEventListener('visibilitychange', function(e) {
+  if (document.hidden) {
+    e.stopImmediatePropagation();
+  }
+}, true);
+
+// 2. SILENT AUDIO LOOP TO PREVENT CHROMIUM RENDER PROCESS SUSPENSION ON LOCKSCREEN
+// When audio is active, Android & Chromium keep timers and WebSocket/fetch event loops spinning
+try {
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (AudioCtx) {
+    const audioCtx = new AudioCtx();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    gain.gain.value = 0.000001; // Inaudible
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+  }
+} catch (e) {}
+
 function sendToAndroid(chatData) {
   try {
     if (window.AndroidBridge && typeof window.AndroidBridge.onChatEvent === 'function') {
@@ -323,14 +353,41 @@ function initObserver() {
         itemsContainer.removeChild(itemsContainer.children[0]);
       }
     }
+    keepScrolledBottom();
   });
 
   observer.observe(itemsContainer, { childList: true });
   notifyReady();
+  keepScrolledBottom();
 
   // Periodically check for active YouTube live polls every 1.5 seconds
   setInterval(checkAndSendPoll, 1500);
 }
+
+function keepScrolledBottom() {
+  try {
+    const scroller = document.querySelector('#item-scroller');
+    if (scroller) {
+      scroller.scrollTop = scroller.scrollHeight;
+    }
+    const showMore = document.querySelector('#show-more:not([hidden]) button, #show-more button, yt-icon-button#show-more');
+    if (showMore && showMore.offsetParent !== null) {
+      showMore.click();
+    }
+  } catch (e) {}
+}
+
+// Global Keep-Alive function invoked periodically by Android RelayForegroundService
+window.__obsKeepAlive = function() {
+  try {
+    keepScrolledBottom();
+    const items = document.querySelector('#items.yt-live-chat-item-list-renderer');
+    if (!items) {
+      initObserver();
+    }
+    checkAndSendPoll();
+  } catch (e) {}
+};
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initObserver);

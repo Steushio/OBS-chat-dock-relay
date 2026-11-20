@@ -269,6 +269,10 @@ class RelayController(private val context: Context) {
 
         logSystem("Starting OBS Chat Relay Services...", "info")
 
+        if (prefs.backgroundModeEnabled && !_isBackgroundServiceRunning.value) {
+            com.obs.chat.relay.service.RelayForegroundService.start(context)
+        }
+
         // 1. WebSocket Server
         try {
             wsServer = RelayWebSocketServer(
@@ -365,6 +369,10 @@ class RelayController(private val context: Context) {
     fun stopRelayService() {
         if (!_isServerRunning.value) return
 
+        if (_isBackgroundServiceRunning.value) {
+            com.obs.chat.relay.service.RelayForegroundService.stop(context)
+        }
+
         ytCapture?.stopCapture()
         ytCapture = null
 
@@ -395,8 +403,8 @@ class RelayController(private val context: Context) {
     }
 
     fun resumeAllWebViews() {
-        ytCapture?.resumeTimers()
-        ytBotSender.resumeTimers()
+        ytCapture?.keepAlive()
+        ytBotSender.keepAlive()
     }
 
     fun updateYouTubeCapture(videoIdOrUrl: String) {

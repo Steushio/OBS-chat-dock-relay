@@ -55,6 +55,16 @@ class MainActivity : ComponentActivity() {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
 
+        // Allow app UI to display on lockscreen when display is on (for quick glance while streaming)
+        if (controller.prefs.showOnLockscreen) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                setShowWhenLocked(true)
+            } else {
+                @Suppress("DEPRECATION")
+                window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED)
+            }
+        }
+
         setContent {
             OBSChatRelayTheme {
                 MainAppScreen()

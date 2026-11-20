@@ -44,6 +44,7 @@ fun SettingsScreen() {
     var keepScreenAwake by remember { mutableStateOf(prefs.keepScreenAwake) }
     var autoStart by remember { mutableStateOf(prefs.autoStartMonitoring) }
     var bgMode by remember { mutableStateOf(prefs.backgroundModeEnabled) }
+    var showOnLockscreen by remember { mutableStateOf(prefs.showOnLockscreen) }
     var lowResource by remember { mutableStateOf(prefs.lowResourceMode) }
     var clearOldChat by remember { mutableStateOf(prefs.clearOldChat) }
 
@@ -646,6 +647,40 @@ fun SettingsScreen() {
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("Behavior & Performance", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextMain)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    SettingToggleRow(
+                        title = "Background & Lockscreen Mode",
+                        subtitle = "Keeps relay, chat capture, and AI bot active when screen is locked or app is minimized",
+                        checked = bgMode,
+                        onCheckedChange = {
+                            bgMode = it
+                            prefs.backgroundModeEnabled = it
+                            if (it) {
+                                if (controller.isServerRunning.value) {
+                                    com.obs.chat.relay.service.RelayForegroundService.start(context)
+                                }
+                                if (!com.obs.chat.relay.util.BatteryOptimizationHelper.isIgnoringBatteryOptimizations(context)) {
+                                    com.obs.chat.relay.util.BatteryOptimizationHelper.requestIgnoreBatteryOptimizations(context)
+                                }
+                            } else {
+                                com.obs.chat.relay.service.RelayForegroundService.stop(context)
+                            }
+                        }
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    SettingToggleRow(
+                        title = "Show Over Lockscreen",
+                        subtitle = "Displays app interface directly over lockscreen when screen turns on",
+                        checked = showOnLockscreen,
+                        onCheckedChange = {
+                            showOnLockscreen = it
+                            prefs.showOnLockscreen = it
+                        }
+                    )
+
                     Spacer(modifier = Modifier.height(8.dp))
 
                     SettingToggleRow(

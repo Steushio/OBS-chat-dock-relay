@@ -74,6 +74,11 @@ class YouTubeChatCapture(
                         settings.userAgentString = desktopUserAgent
                         settings.loadsImagesAutomatically = !lowResource
                         settings.mediaPlaybackRequiresUserGesture = false
+                        settings.cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
+                        settings.javaScriptCanOpenWindowsAutomatically = true
+
+                        // Assign virtual viewport dimensions so headless layout calculations behave like a visible screen
+                        layout(0, 0, 1080, 1920)
 
                         addJavascriptInterface(AndroidBridge(), "AndroidBridge")
 
@@ -110,9 +115,17 @@ class YouTubeChatCapture(
     }
 
     fun resumeTimers() {
+        keepAlive()
+    }
+
+    fun keepAlive() {
         mainHandler.post {
             try {
                 webView?.resumeTimers()
+                webView?.evaluateJavascript(
+                    "if (typeof window.__obsKeepAlive === 'function') { window.__obsKeepAlive(); }",
+                    null
+                )
             } catch (e: Exception) {}
         }
     }
