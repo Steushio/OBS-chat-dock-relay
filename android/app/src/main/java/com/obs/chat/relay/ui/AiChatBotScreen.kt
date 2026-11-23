@@ -85,6 +85,7 @@ fun AiChatBotScreen() {
     var valRankEnabled by remember { mutableStateOf(prefs.valorantRankEnabled) }
     var valName by remember { mutableStateOf(prefs.valorantName) }
     var valTag by remember { mutableStateOf(prefs.valorantTag) }
+    var valPuuid by remember { mutableStateOf(prefs.valorantPuuid) }
     var valRegion by remember { mutableStateOf(prefs.valorantRegion) }
     var henrikApiKey by remember { mutableStateOf(prefs.henrikApiKey) }
     var valRankTestResult by remember { mutableStateOf<String?>(null) }
@@ -921,6 +922,30 @@ fun AiChatBotScreen() {
                         Spacer(modifier = Modifier.height(8.dp))
 
                         OutlinedTextField(
+                            value = valPuuid,
+                            onValueChange = {
+                                valPuuid = it
+                                prefs.valorantPuuid = it
+                            },
+                            label = { Text("Permanent PUUID (Riot Account ID - Optional)", fontSize = 12.sp) },
+                            placeholder = { Text("Auto-filled on test or paste Riot PUUID", fontSize = 11.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = AccentRed,
+                                unfocusedBorderColor = BorderDark
+                            )
+                        )
+                        Text(
+                            text = "Permanent ID: survives Riot ID / Tag changes. Auto-saved when testing live rank.",
+                            fontSize = 10.sp,
+                            color = TextMuted,
+                            modifier = Modifier.padding(start = 4.dp, top = 2.dp)
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        OutlinedTextField(
                             value = henrikApiKey,
                             onValueChange = {
                                 henrikApiKey = it
@@ -944,7 +969,17 @@ fun AiChatBotScreen() {
                                 valRankTestResult = "Querying HenrikDev API..."
                                 scope.launch {
                                     val res = bot.valorantRankService.getRankInfo(forceRefresh = true)
-                                    valRankTestResult = res.formattedMessage
+                                    if (res.puuid.isNotEmpty()) {
+                                        valPuuid = res.puuid
+                                    }
+                                    if (res.name.isNotEmpty()) {
+                                        valName = res.name
+                                    }
+                                    if (res.tag.isNotEmpty()) {
+                                        valTag = res.tag
+                                    }
+                                    val puuidNotice = if (res.puuid.isNotEmpty()) "\n[Permanent PUUID: ${res.puuid}]" else ""
+                                    valRankTestResult = res.formattedMessage + puuidNotice
                                     isCheckingRank = false
                                 }
                             },

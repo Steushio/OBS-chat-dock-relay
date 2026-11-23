@@ -32,25 +32,49 @@ class ValorantRankService {
 
     const name = (this.configStore?.get('valorantName') || 'Steushio').trim();
     const tag = (this.configStore?.get('valorantTag') || 'IND').trim();
+    const puuid = (this.configStore?.get('valorantPuuid') || '').trim();
     const region = (this.configStore?.get('valorantRegion') || 'ap').trim().toLowerCase();
     const apiKey = (this.configStore?.get('henrikApiKey') || '').trim();
 
-    const v2Url = `https://api.henrikdev.xyz/valorant/v2/mmr/${region}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}`;
-    const v1Url = `https://api.henrikdev.xyz/valorant/v1/mmr/${region}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}`;
+    let result = null;
 
-    let result = await this.queryHenrik(v2Url, apiKey, true, name, tag, region);
-    if (!result.success && !result.message.includes('Unauthorized')) {
-      result = await this.queryHenrik(v1Url, apiKey, false, name, tag, region);
+    // 1. If permanent PUUID is provided, query PUUID endpoints first
+    if (puuid) {
+      const v3PuuidUrl = `https://api.henrikdev.xyz/valorant/v3/by-puuid/mmr/${region}/pc/${puuid}`;
+      const v2PuuidUrl = `https://api.henrikdev.xyz/valorant/v2/by-puuid/mmr/${region}/${puuid}`;
+      result = await this.queryHenrik(v3PuuidUrl, apiKey, name, tag, region, puuid);
+      if (!result.success && !result.message.includes('Unauthorized')) {
+        result = await this.queryHenrik(v2PuuidUrl, apiKey, name, tag, region, puuid);
+      }
+    }
+
+    // 2. Fallback to Name & Tag
+    if (!result || (!result.success && !result.message.includes('Unauthorized'))) {
+      const v3Url = `https://api.henrikdev.xyz/valorant/v3/mmr/${region}/pc/${encodeURIComponent(name)}/${encodeURIComponent(tag)}`;
+      const v2Url = `https://api.henrikdev.xyz/valorant/v2/mmr/${region}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}`;
+      const v1Url = `https://api.henrikdev.xyz/valorant/v1/mmr/${region}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}`;
+
+      let nameResult = await this.queryHenrik(v3Url, apiKey, name, tag, region, puuid);
+      if (!nameResult.success && !nameResult.message.includes('Unauthorized')) {
+        nameResult = await this.queryHenrik(v2Url, apiKey, name, tag, region, puuid);
+      }
+      if (!nameResult.success && !nameResult.message.includes('Unauthorized')) {
+        nameResult = await this.queryHenrik(v1Url, apiKey, name, tag, region, puuid);
+      }
+      result = nameResult;
     }
 
     if (result.success) {
+      if (result.puuid && !this.configStore?.get('valorantPuuid')) {
+        this.configStore?.set('valorantPuuid', result.puuid);
+      }
       this.cachedResult = result;
       this.lastFetchTime = Date.now();
     }
     return result;
   }
 
-  queryHenrik(url, apiKey, isV2, name, tag, region) {
+  queryHenrik(url, apiKey, name, tag, region, puuid) {
     return new Promise((resolve) => {
       const headers = { 'User-Agent': 'OBS-Chat-Dock-Relay/1.0' };
       if (apiKey) headers['Authorization'] = apiKey;
@@ -63,63 +87,96 @@ class ValorantRankService {
             if (res.statusCode === 401 || res.statusCode === 403) {
               return resolve({
                 success: false,
-                name, tag,
+                name, tag, puuid,
                 rank: 'Ascendant Goal',
                 message: `🎮 ${name}#${tag}: Challenging for Ascendant (one hand MMO mouse)! [Henrik API Key required in app settings for live RR]`
               });
             }
             if (res.statusCode === 404) {
+              const targetDesc = puuid ? `PUUID ${puuid}` : `${name}#${tag}`;
               return resolve({
                 success: false,
-                name, tag,
+                name, tag, puuid,
                 rank: 'Unknown',
-                message: `🎮 Player ${name}#${tag} not found on region '${region}'. Please check Riot ID in Bot Settings!`
+                message: `🎮 Player ${targetDesc} not found on region '${region}'. Please check details in Bot Settings!`
               });
             }
             if (res.statusCode === 200 && data) {
               const json = JSON.parse(data);
               const dataObj = json.data;
-              if (isV2 && dataObj && dataObj.current_data) {
-                const cur = dataObj.current_data;
-                const rankPatched = cur.currenttierpatched || 'Unrated';
-                const rr = cur.ranking_in_tier || 0;
-                const elo = cur.elo || 0;
-                const change = cur.mmr_change_to_last_game || 0;
+              if (dataObj) {
+                let parsedPuuid = puuid;
+                let parsedName = name;
+                let parsedTag = tag;
+                let rankPatched = 'Unrated';
+                let rr = 0;
+                let elo = 0;
+                let change = 0;
+                let peakRank = '';
+
+                // v3 schema
+                if (dataObj.current) {
+                  rankPatched = dataObj.current.tier?.name || 'Unrated';
+                  rr = dataObj.current.rr || 0;
+                  elo = dataObj.current.elo || 0;
+                  change = dataObj.current.last_change || 0;
+                  if (dataObj.account) {
+                    parsedPuuid = dataObj.account.puuid || parsedPuuid;
+                    parsedName = dataObj.account.name || parsedName;
+                    parsedTag = dataObj.account.tag || parsedTag;
+                  }
+                  if (dataObj.peak && dataObj.peak.tier) {
+                    peakRank = dataObj.peak.tier.name || '';
+                  }
+                }
+                // v2 schema
+                else if (dataObj.current_data) {
+                  const cur = dataObj.current_data;
+                  rankPatched = cur.currenttierpatched || 'Unrated';
+                  rr = cur.ranking_in_tier || 0;
+                  elo = cur.elo || 0;
+                  change = cur.mmr_change_to_last_game || 0;
+                  parsedPuuid = dataObj.puuid || parsedPuuid;
+                  parsedName = dataObj.name || parsedName;
+                  parsedTag = dataObj.tag || parsedTag;
+                  if (dataObj.highest_rank) {
+                    peakRank = dataObj.highest_rank.patched_tier || '';
+                  }
+                }
+                // v1 schema
+                else if (dataObj.currenttierpatched) {
+                  rankPatched = dataObj.currenttierpatched || 'Unrated';
+                  rr = dataObj.ranking_in_tier || 0;
+                  elo = dataObj.elo || 0;
+                  change = dataObj.mmr_change_to_last_game || 0;
+                  parsedPuuid = dataObj.puuid || parsedPuuid;
+                  parsedName = dataObj.name || parsedName;
+                  parsedTag = dataObj.tag || parsedTag;
+                }
+
                 const changeStr = change >= 0 ? `+${change}` : `${change}`;
+                const peakStr = (peakRank && peakRank !== 'null' && peakRank !== rankPatched) ? ` (Peak: ${peakRank})` : '';
                 return resolve({
                   success: true,
-                  name, tag,
+                  name: parsedName,
+                  tag: parsedTag,
+                  puuid: parsedPuuid,
                   rank: rankPatched,
-                  rr, elo,
-                  change,
-                  message: `🎮 ${name}#${tag}: ${rankPatched} (${rr} RR | ELO ${elo}) [${changeStr} last match]`
-                });
-              } else if (dataObj) {
-                const rankPatched = dataObj.currenttierpatched || 'Unrated';
-                const rr = dataObj.ranking_in_tier || 0;
-                const elo = dataObj.elo || 0;
-                const change = dataObj.mmr_change_to_last_game || 0;
-                const changeStr = change >= 0 ? `+${change}` : `${change}`;
-                return resolve({
-                  success: true,
-                  name, tag,
-                  rank: rankPatched,
-                  rr, elo,
-                  change,
-                  message: `🎮 ${name}#${tag}: ${rankPatched} (${rr} RR | ELO ${elo}) [${changeStr} last match]`
+                  rr, elo, change, peakRank,
+                  message: `🎮 ${parsedName}#${parsedTag}: ${rankPatched} (${rr} RR | ELO ${elo}) [${changeStr} last match]${peakStr}`
                 });
               }
             }
             resolve({
               success: false,
-              name, tag,
+              name, tag, puuid,
               rank: 'Ascendant Challenge',
               message: `🎮 ${name} is doing a one-handed MMO mouse challenge to reach Ascendant in Valorant!`
             });
           } catch (e) {
             resolve({
               success: false,
-              name, tag,
+              name, tag, puuid,
               rank: 'Ascendant Challenge',
               message: `🎮 ${name} is challenging for Ascendant in Valorant (1-hand MMO mouse only)!`
             });
@@ -129,7 +186,7 @@ class ValorantRankService {
       req.on('error', () => {
         resolve({
           success: false,
-          name, tag,
+          name, tag, puuid,
           rank: 'Ascendant Challenge',
           message: `🎮 ${name} is challenging for Ascendant in Valorant (1-hand MMO mouse only)!`
         });

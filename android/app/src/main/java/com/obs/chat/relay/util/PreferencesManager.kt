@@ -119,6 +119,10 @@ class PreferencesManager(context: Context) {
         get() = prefs.getString("valorant_tag", "IND") ?: "IND"
         set(value) = prefs.edit().putString("valorant_tag", value).apply()
 
+    var valorantPuuid: String
+        get() = prefs.getString("valorant_puuid", "") ?: ""
+        set(value) = prefs.edit().putString("valorant_puuid", value).apply()
+
     var valorantRegion: String
         get() = prefs.getString("valorant_region", "ap") ?: "ap"
         set(value) = prefs.edit().putString("valorant_region", value).apply()
