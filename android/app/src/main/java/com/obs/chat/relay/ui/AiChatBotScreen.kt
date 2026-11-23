@@ -81,6 +81,15 @@ fun AiChatBotScreen() {
     var streamerKnowledge by remember { mutableStateOf(prefs.streamerKnowledge) }
     var systemPrompt by remember { mutableStateOf(prefs.systemPrompt) }
 
+    // Valorant Rank Detection states
+    var valRankEnabled by remember { mutableStateOf(prefs.valorantRankEnabled) }
+    var valName by remember { mutableStateOf(prefs.valorantName) }
+    var valTag by remember { mutableStateOf(prefs.valorantTag) }
+    var valRegion by remember { mutableStateOf(prefs.valorantRegion) }
+    var henrikApiKey by remember { mutableStateOf(prefs.henrikApiKey) }
+    var valRankTestResult by remember { mutableStateOf<String?>(null) }
+    var isCheckingRank by remember { mutableStateOf(false) }
+
     // Test prompt states
     var testPrompt by remember { mutableStateOf("Why do you play without a keyboard?") }
     var testResponse by remember { mutableStateOf<String?>(null) }
@@ -824,7 +833,154 @@ fun AiChatBotScreen() {
             }
         }
 
-        // 6. Custom Commands Manager
+        // 6. Valorant Live Rank Detection (HenrikDev API)
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = CardDark),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, BorderDark, RoundedCornerShape(16.dp))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Valorant Live Rank Detection", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextMain)
+                            Text("Auto-replies with live rank & RR via Henrik API when asked in chat", fontSize = 11.sp, color = TextMuted)
+                        }
+                        Switch(
+                            checked = valRankEnabled,
+                            onCheckedChange = {
+                                valRankEnabled = it
+                                prefs.valorantRankEnabled = it
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.Black,
+                                checkedTrackColor = KickGreen
+                            )
+                        )
+                    }
+
+                    if (valRankEnabled) {
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = valName,
+                                onValueChange = {
+                                    valName = it
+                                    prefs.valorantName = it
+                                },
+                                label = { Text("Riot Name", fontSize = 12.sp) },
+                                modifier = Modifier.weight(1.2f),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = AccentRed,
+                                    unfocusedBorderColor = BorderDark
+                                )
+                            )
+
+                            OutlinedTextField(
+                                value = valTag,
+                                onValueChange = {
+                                    valTag = it
+                                    prefs.valorantTag = it
+                                },
+                                label = { Text("Tag (#)", fontSize = 12.sp) },
+                                modifier = Modifier.weight(0.8f),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = AccentRed,
+                                    unfocusedBorderColor = BorderDark
+                                )
+                            )
+
+                            OutlinedTextField(
+                                value = valRegion,
+                                onValueChange = {
+                                    valRegion = it
+                                    prefs.valorantRegion = it
+                                },
+                                label = { Text("Region", fontSize = 12.sp) },
+                                modifier = Modifier.weight(0.7f),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = AccentRed,
+                                    unfocusedBorderColor = BorderDark
+                                )
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        OutlinedTextField(
+                            value = henrikApiKey,
+                            onValueChange = {
+                                henrikApiKey = it
+                                prefs.henrikApiKey = it
+                            },
+                            label = { Text("Henrik API Key (Free at dash.henrikdev.xyz)", fontSize = 12.sp) },
+                            placeholder = { Text("HDEV-...", fontSize = 11.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = AccentPurple,
+                                unfocusedBorderColor = BorderDark
+                            )
+                        )
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Button(
+                            onClick = {
+                                isCheckingRank = true
+                                valRankTestResult = "Querying HenrikDev API..."
+                                scope.launch {
+                                    val res = bot.valorantRankService.getRankInfo(forceRefresh = true)
+                                    valRankTestResult = res.formattedMessage
+                                    isCheckingRank = false
+                                }
+                            },
+                            enabled = !isCheckingRank,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = AccentRed,
+                                contentColor = Color.White
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.SportsEsports, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(if (isCheckingRank) "Querying Riot MMR..." else "Test Live Rank Detection")
+                        }
+
+                        if (!valRankTestResult.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = BgDark),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = valRankTestResult!!,
+                                    fontSize = 12.sp,
+                                    color = KickGreen,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.padding(10.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 7. Custom Commands Manager
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = CardDark),

@@ -4,6 +4,7 @@ const websocketServer = require('./websocketServer');
 const botAccountSession = require('./botAccountSession');
 const streamManager = require('./streamManager');
 const webSearchHelper = require('./webSearchHelper');
+const ValorantRankService = require('./valorantRank');
 
 class OllamaBot {
   constructor() {
@@ -54,6 +55,7 @@ class OllamaBot {
     this.isProcessingQueue = false;
     this.activeTimerIntervals = [];
     this.resetTimerState();
+    this.valorantRankService = new ValorantRankService(configStore);
 
     this.setupIpc();
     this.startTimers();
@@ -732,6 +734,15 @@ ${webSnippet ? `\n=== LIVE INTERNET FACTS ===\n${webSnippet}\n==================
     // Track real viewer chat activity for activity-gated timer messages
     if (!isBroadcasterUser) {
       this.recordUserMessageForTimers(platform);
+    }
+
+    // 1.5 VALORANT LIVE RANK CHECK (HenrikDev API)
+    if (this.valorantRankService && this.valorantRankService.isRankQuery(rawMessage)) {
+      this.seenChatters.add(userKey);
+      const rankInfo = await this.valorantRankService.getRankInfo();
+      websocketServer.logSystem(`[Ollama Bot] Answered Valorant rank query for ${username}: ${rankInfo.message}`);
+      this.sendBotReply(platform, `@${username} ${rankInfo.message}`);
+      return;
     }
 
     // 2. CUSTOM COMMANDS CHECK (e.g. !discord, !socials) - commands take precedence and work for BOTH streamer & viewers!

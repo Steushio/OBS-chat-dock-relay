@@ -25,6 +25,7 @@ class OllamaBotEngine(
     private val gson = Gson()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val webSearchHelper = WebSearchHelper()
+    val valorantRankService = com.obs.chat.relay.valorant.ValorantRankService(prefs) { msg, type -> onLog(msg, type) }
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -135,6 +136,15 @@ class OllamaBotEngine(
                 return // Already answered or currently answering this question
             }
             recentAnsweredQuestions[dedupeKey] = now
+        }
+
+        // 5.5 Valorant Live Rank Detection (HenrikDev API)
+        if (prefs.valorantRankEnabled && valorantRankService.isRankQuery(message)) {
+            scope.launch {
+                val rankResult = valorantRankService.getRankInfo()
+                dispatchBotReply(rankResult.formattedMessage, chat.platform)
+            }
+            return
         }
 
         // 6. Custom Commands (!discord, !specs, !socials - work instantly without needing AI)
@@ -377,7 +387,13 @@ class OllamaBotEngine(
                 }
             }
 
-            val reply = generateUnifiedAiResponse(userPrompt, username, webContext)
+            var rankContext = ""
+            if (prefs.valorantRankEnabled && (userPrompt.contains("rank", ignoreCase = true) || userPrompt.contains("valo", ignoreCase = true))) {
+                val rankResult = valorantRankService.getRankInfo()
+                rankContext = "\nLive Valorant MMR: ${rankResult.formattedMessage}\n"
+            }
+
+            val reply = generateUnifiedAiResponse(userPrompt, username, webContext + rankContext)
             if (!reply.isNullOrBlank()) {
                 lastAiResponseTime = System.currentTimeMillis()
                 dispatchBotReply(reply, platform)

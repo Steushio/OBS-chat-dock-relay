@@ -106,6 +106,27 @@ class PreferencesManager(context: Context) {
         get() = prefs.getBoolean("show_on_lockscreen", true)
         set(value) = prefs.edit().putBoolean("show_on_lockscreen", value).apply()
 
+    // Valorant Live Rank (HenrikDev API)
+    var valorantRankEnabled: Boolean
+        get() = prefs.getBoolean("valorant_rank_enabled", true)
+        set(value) = prefs.edit().putBoolean("valorant_rank_enabled", value).apply()
+
+    var valorantName: String
+        get() = prefs.getString("valorant_name", "Steushio") ?: "Steushio"
+        set(value) = prefs.edit().putString("valorant_name", value).apply()
+
+    var valorantTag: String
+        get() = prefs.getString("valorant_tag", "IND") ?: "IND"
+        set(value) = prefs.edit().putString("valorant_tag", value).apply()
+
+    var valorantRegion: String
+        get() = prefs.getString("valorant_region", "ap") ?: "ap"
+        set(value) = prefs.edit().putString("valorant_region", value).apply()
+
+    var henrikApiKey: String
+        get() = prefs.getString("henrik_api_key", "") ?: ""
+        set(value) = prefs.edit().putString("henrik_api_key", value).apply()
+
     // AI Provider Selection: "nvidia" | "opencode_zen" | "gemini" | "openai" | "ollama"
     var aiProvider: String
         get() = prefs.getString(KEY_AI_PROVIDER, "nvidia") ?: "nvidia"
