@@ -1,7 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="notranslate" translate="no">
 <head>
   <meta charset="UTF-8">
+  <meta name="google" content="notranslate">
+  <meta name="googlebot" content="notranslate">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OBS Chat Dock</title>
   <script src="https://unpkg.com/mqtt@5.3.5/dist/mqtt.min.js"></script>
@@ -395,9 +397,12 @@
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
     }
+      .notranslate {
+      translate: no !important;
+    }
   </style>
 </head>
-<body>
+<body class="notranslate" translate="no">
   <div id="status-bar">
     <div style="display: flex; align-items: center; gap: 6px;">
       <span id="status-dot" class="badge-indicator disconnected"></span>
@@ -434,7 +439,7 @@
 
   <div id="stream-header">No Active Stream Detected</div>
 
-  <div id="messages-container">
+  <div id="messages-container" class="notranslate" translate="no">
     <!-- Messages appended dynamically -->
   </div>
 
@@ -1255,7 +1260,8 @@
       const isChat = !item.type || item.type === 'chat' || item.type === 'message';
       if (isChat) {
         const row = document.createElement('div');
-        row.className = 'message-row';
+        row.className = 'message-row notranslate';
+        row.setAttribute('translate', 'no');
         row.setAttribute('data-timestamp', Date.now());
         if (item.id) row.id = item.id;
 
@@ -1299,10 +1305,10 @@
           <div>
             <span class="author-wrapper">
               ${platformBadge}
-              <span class="author-name ${platform} ${roleClass}">${item.username || 'Anonymous'}</span>
+              <span class="author-name ${platform} ${roleClass} notranslate" translate="no">${item.username || 'Anonymous'}</span>
               ${badgeHtml}
             </span>
-            <span class="message-text">${item.message || ''}</span>
+            <span class="message-text notranslate" translate="no">${item.message || ''}</span>
           </div>
         `;
         return row;
@@ -1321,7 +1327,7 @@
           card.className = item.type === 'sticker' ? 'alert-card sticker' : 'alert-card superchat';
           if (item.color) card.style.borderLeftColor = item.color;
           const titleLabel = item.type === 'sticker' ? '🎨 Super Sticker' : '💰 Super Chat';
-          const msg = item.message ? `<div>${item.message}</div>` : '';
+          const msg = item.message ? `<div class="notranslate" translate="no">${item.message}</div>` : '';
           const stickerImg = item.stickerUrl ? `<div><img src="${item.stickerUrl}" width="40" height="40" loading="lazy" decoding="async" style="max-height:40px;max-width:40px;object-fit:contain;margin-top:2px;" onerror="this.style.display='none'"></div>` : '';
           card.innerHTML = `
             <div class="alert-header">
@@ -1348,7 +1354,7 @@
               <span class="alert-title">${titleLabel}: ${item.username || 'Member'} ${platformBadge}</span>
               <span class="alert-amount">GIFT</span>
             </div>
-            <div>${item.message || ''}</div>
+            <div class="notranslate" translate="no">${item.message || ""}</div>
           `;
         } else {
           // membership

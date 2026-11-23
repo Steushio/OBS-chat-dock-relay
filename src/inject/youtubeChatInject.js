@@ -1,3 +1,13 @@
+// 0. DISABLE TRANSLATION
+try {
+  document.documentElement.setAttribute('translate', 'no');
+  document.documentElement.classList.add('notranslate');
+  if (document.body) {
+    document.body.setAttribute('translate', 'no');
+    document.body.classList.add('notranslate');
+  }
+} catch(e) {}
+
 const { ipcRenderer } = require('electron');
 
 console.log('[OBS Chat Interceptor] Chat injection script loaded. Initializing observer...');
@@ -59,7 +69,8 @@ function parseChatElement(node) {
     // 1. STANDARD TEXT MESSAGES
     if (tagName === 'yt-live-chat-text-message-renderer') {
       const authorEl = node.querySelector('#author-name');
-      const messageEl = node.querySelector('#message');
+      const originalMsgEl = node.querySelector('#original-message, #original-text, [id*="original-message"], [id*="untranslated"]');
+      const messageEl = originalMsgEl || node.querySelector('#message');
       const avatarEl = node.querySelector('#avatar img');
 
       const username = authorEl ? authorEl.textContent.trim() : 'Anonymous';
@@ -81,7 +92,8 @@ function parseChatElement(node) {
     // 2. SUPER CHATS / DONATIONS
     if (tagName === 'yt-live-chat-paid-message-renderer') {
       const authorEl = node.querySelector('#author-name');
-      const messageEl = node.querySelector('#message');
+      const origPaidMsgEl = node.querySelector('#original-message, #original-text, [id*="original-message"], [id*="untranslated"]');
+      const messageEl = origPaidMsgEl || node.querySelector('#message');
       const amountEl = node.querySelector('#purchase-amount');
       const avatarEl = node.querySelector('#avatar img');
       

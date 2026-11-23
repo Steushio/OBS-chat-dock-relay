@@ -1,7 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="notranslate" translate="no">
 <head>
   <meta charset="UTF-8">
+  <meta name="google" content="notranslate">
+  <meta name="googlebot" content="notranslate">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OBS Event Dock</title>
   <script src="https://unpkg.com/mqtt@5.3.5/dist/mqtt.min.js"></script>
@@ -124,9 +126,12 @@
     #log-container::-webkit-scrollbar-thumb:hover {
       background: #3f3f46;
     }
+      .notranslate {
+      translate: no !important;
+    }
   </style>
 </head>
-<body>
+<body class="notranslate" translate="no">
   <div id="header">
     <div>
       <span id="status-dot" class="badge-indicator disconnected"></span>
